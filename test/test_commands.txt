@@ -1,0 +1,92 @@
+test-ccopen:
+			write 2fe0f5dc-3cdc-4602-ae92-7c8d3495b945 ccopen
+			write 94734160-5fd2-4dc2-8a22-ed3a65bd65aa IG-CONN
+test-wfa2:
+			write 2fe0f5dc-3cdc-4602-ae92-7c8d3495b945 wfa2
+			write e95962db-0584-4d6b-80c6-264660e1a717 none
+			write ef9be1f4-1d2d-4ab1-b6a5-06bfec24cbd7 12345
+			write 94734160-5fd2-4dc2-8a22-ed3a65bd65aa IG-CONN
+test-wfa3:
+			write 2fe0f5dc-3cdc-4602-ae92-7c8d3495b945 wfa3
+			write e95962db-0584-4d6b-80c6-264660e1a717 none
+			write ef9be1f4-1d2d-4ab1-b6a5-06bfec24cbd7 1234567890123
+			write 94734160-5fd2-4dc2-8a22-ed3a65bd65aa IG-CONN
+test-wfa4:
+			write 2fe0f5dc-3cdc-4602-ae92-7c8d3495b945 wfa4
+			write e95962db-0584-4d6b-80c6-264660e1a717 ieee8021x
+			write 52c187a1-910a-45f3-8cb4-d2a1511ccf5d leap
+			write 15280d6d-fa10-411f-880f-f806f296ec4e user1
+			write 748eda5d-af17-41ac-817b-45afea0d5a1e user1
+			write 94734160-5fd2-4dc2-8a22-ed3a65bd65aa IG-CONN
+test-wfa7:
+			write 2fe0f5dc-3cdc-4602-ae92-7c8d3495b945 wfa7
+			write e95962db-0584-4d6b-80c6-264660e1a717 wpa-psk
+			write c487dfd9-b9f8-423f-a9d8-e8ac70c67e3d arkansas
+			write 94734160-5fd2-4dc2-8a22-ed3a65bd65aa IG-CONN
+test-wfa8:
+			write 2fe0f5dc-3cdc-4602-ae92-7c8d3495b945 wfa8
+			write 23692fc1-32eb-4e86-a160-d0b0ab2df166 peap
+			write 9b77be4b-386e-4fac-a565-72a51439710d user1
+			write 51ecf5a2-716e-4463-9153-49d6f95f9c21 user1
+			write 3efae3bb-1274-4a03-9df8-0dd00422c09f mschapv2
+			write e95962db-0584-4d6b-80c6-264660e1a717 wpa-eap
+			write 94734160-5fd2-4dc2-8a22-ed3a65bd65aa IG-CONN
+test-wfa9:
+			write 2fe0f5dc-3cdc-4602-ae92-7c8d3495b945 wfa9
+			write e95962db-0584-4d6b-80c6-264660e1a717 wpa-psk
+			write 52c187a1-910a-45f3-8cb4-d2a1511ccf5d open
+			write c487dfd9-b9f8-423f-a9d8-e8ac70c67e3d arkansas
+			write 94734160-5fd2-4dc2-8a22-ed3a65bd65aa IG-CONN
+test-wfa10:
+			write 2fe0f5dc-3cdc-4602-ae92-7c8d3495b945 wfa10
+			write 23692fc1-32eb-4e86-a160-d0b0ab2df166 leap
+			write 9b77be4b-386e-4fac-a565-72a51439710d user1
+			write 51ecf5a2-716e-4463-9153-49d6f95f9c21 user1
+			write e95962db-0584-4d6b-80c6-264660e1a717 wpa-eap
+			write 94734160-5fd2-4dc2-8a22-ed3a65bd65aa IG-CONN
+test-wfa11:
+			write 2fe0f5dc-3cdc-4602-ae92-7c8d3495b945 wfa11
+			write e95962db-0584-4d6b-80c6-264660e1a717 wpa-psk
+			write c487dfd9-b9f8-423f-a9d8-e8ac70c67e3d arkansas
+			write 94734160-5fd2-4dc2-8a22-ed3a65bd65aa IG-CONN
+test-wfa12:
+			write 2fe0f5dc-3cdc-4602-ae92-7c8d3495b945 wfa12
+			write 23692fc1-32eb-4e86-a160-d0b0ab2df166 peap
+			write 9b77be4b-386e-4fac-a565-72a51439710d user1
+			write 51ecf5a2-716e-4463-9153-49d6f95f9c21 user1
+			write 3efae3bb-1274-4a03-9df8-0dd00422c09f gtc
+			write e95962db-0584-4d6b-80c6-264660e1a717 wpa-eap
+			write 94734160-5fd2-4dc2-8a22-ed3a65bd65aa IG-CONN
+test-wfa13:
+			write 2fe0f5dc-3cdc-4602-ae92-7c8d3495b945 wfa13
+			write e95962db-0584-4d6b-80c6-264660e1a717 wpa-psk
+			write c487dfd9-b9f8-423f-a9d8-e8ac70c67e3d arkansas
+			write 94734160-5fd2-4dc2-8a22-ed3a65bd65aa IG-CONN
+test-wfa14:
+			write 2fe0f5dc-3cdc-4602-ae92-7c8d3495b945 wfa14
+			write 23692fc1-32eb-4e86-a160-d0b0ab2df166 tls
+			write 9b77be4b-386e-4fac-a565-72a51439710d user1
+			write 51ecf5a2-716e-4463-9153-49d6f95f9c21 user1
+			write 8f2a588a-42d3-4401-8432-b4b80163a14c /etc/ssl/certs/AkronCA.cer
+			write d248c665-6b55-4280-b1de-65730c3983bd /etc/ssl/certs/user1_cert.cer
+			write 037ef2e1-b922-49cb-9908-c2f5d2664776 user1
+			write cdd9ea6d-3c5b-4b82-8e7a-6d46f4e86b48 /etc/ssl/certs/user1_key.pem
+			write e95962db-0584-4d6b-80c6-264660e1a717 wpa-eap
+			write 94734160-5fd2-4dc2-8a22-ed3a65bd65aa IG-CONN
+test-wfa15:
+			write 2fe0f5dc-3cdc-4602-ae92-7c8d3495b945 wfa15
+			write 23692fc1-32eb-4e86-a160-d0b0ab2df166 ttls
+			write 9b77be4b-386e-4fac-a565-72a51439710d user1
+			write 51ecf5a2-716e-4463-9153-49d6f95f9c21 user1
+			write 3efae3bb-1274-4a03-9df8-0dd00422c09f mschapv2
+			write e95962db-0584-4d6b-80c6-264660e1a717 wpa-eap
+			write 94734160-5fd2-4dc2-8a22-ed3a65bd65aa IG-CONN
+test-wfa16:
+			write 2fe0f5dc-3cdc-4602-ae92-7c8d3495b945 wfa16
+			write 23692fc1-32eb-4e86-a160-d0b0ab2df166 peap
+			write 9b77be4b-386e-4fac-a565-72a51439710d user1
+			write 51ecf5a2-716e-4463-9153-49d6f95f9c21 user1
+			write 3efae3bb-1274-4a03-9df8-0dd00422c09f gtc
+			write 8f2a588a-42d3-4401-8432-b4b80163a14c /etc/ssl/certs/AkronCA.cer
+			write e95962db-0584-4d6b-80c6-264660e1a717 wpa-eap
+			write 94734160-5fd2-4dc2-8a22-ed3a65bd65aa IG-CONN
