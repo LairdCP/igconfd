@@ -3,7 +3,8 @@ import dbus, dbus.service, dbus.exceptions
 import sys, signal
 from syslog import syslog, openlog
 from dbus.mainloop.glib import DBusGMainLoop
-import daemon
+import systemd
+import systemd.daemon
 import wifisvc
 import filesvc
 import confsvc
@@ -94,17 +95,15 @@ def main():
     service_manager.RegisterApplication(app.get_path(), {},
                                     reply_handler=register_app_cb,
                                     error_handler=register_app_error_cb)
-
+    # Notify systemd now that BLE profiles are registered
+    systemd.daemon.notify('READY=1')
     mainloop.run()
 
 
 #
-# Run the main loop in daemon context
+# Run the main loop
 #
-with daemon.DaemonContext(
-    stdout=sys.stdout,
-    stderr=sys.stderr):
-    openlog("IG.ConfService")
-    syslog("Starting main loop.")
-    main()
+openlog("IG.ConfService")
+syslog("Starting main loop.")
+main()
 
