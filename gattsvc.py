@@ -159,6 +159,11 @@ class Characteristic(dbus.service.Object):
         syslog('Default StopNotify called, returning error')
         raise NotSupportedException()
 
+    @dbus.service.method(GATT_CHRC_IFACE)
+    def Confirm(self):
+        syslog('Default Confirm called, returning error')
+        raise NotSupportedException()
+
     @dbus.service.signal(DBUS_PROP_IFACE,
                          signature='sa{sv}as')
     def PropertiesChanged(self, interface, changed, invalidated):
