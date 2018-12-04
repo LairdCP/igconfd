@@ -32,6 +32,7 @@ NM_CONNECTIVITY_FULL = 4
 NM_802_11_AP_FLAGS_PRIVACY = 0x00000001
 
 ''' Useful Network Manager AP Security Flags '''
+NM_802_11_AP_SEC_NONE            = 0x00000000
 NM_802_11_AP_SEC_PAIR_WEP40      = 0x00000001
 NM_802_11_AP_SEC_PAIR_WEP104     = 0x00000002
 NM_802_11_AP_SEC_KEY_MGMT_PSK    = 0x00000100
@@ -88,11 +89,12 @@ def create_wireless_config(conn_name, config_data):
                 'key-mgmt' : 'wpa-eap'
             })
             wireless_config['802-1x'] = dbus.Dictionary({
+                'eap' : dbus.Array([config_data['eap']]),
                 'identity' : config_data['identity'],
                 'password' : config_data['password']
             })
             if 'phase2-auth' in config_data:
-                wireless_config['802-1x']['phase2-auth'] = config_data['phase2-auth']
+                wireless_config['802-1x']['phase2-auth'] = dbus.Array([config_data['phase2-auth']])
     except KeyError:
         syslog('Invalid input configuration')
         wireless_config = {}
@@ -136,6 +138,7 @@ class NetManager():
         ap_dict = {}
         start_time = time.time()
         # Collect APs until the list is emptied, or a timeout
+        syslog('Collecting APs with timeout = {}'.format(timeout))
         while self.ap_objs and len(self.ap_objs) > 0 and (not timeout
                 or time.time() - start_time < timeout):
             ap_obj = self.ap_objs.pop(0)
@@ -148,11 +151,13 @@ class NetManager():
                 ap_flags = int(ap_props.Get(NM_AP_IFACE, 'Flags'))
                 ap_wpa_flags = int(ap_props.Get(NM_AP_IFACE, 'WpaFlags'))
                 ap_rsn_flags = int(ap_props.Get(NM_AP_IFACE, 'RsnFlags'))
-                ap_dict[ssid]['wep'] = ((ap_rsn_flags & NM_802_11_AP_SEC_PAIR_WEP40 > 0 or
-                                         ap_rsn_flags & NM_802_11_AP_SEC_PAIR_WEP104 > 0) and
-                                         ap_flags & NM_802_11_AP_FLAGS_PRIVACY > 0)
-                ap_dict[ssid]['psk'] = ap_wpa_flags & NM_802_11_AP_SEC_KEY_MGMT_PSK > 0
-                ap_dict[ssid]['eap'] = ap_rsn_flags & NM_802_11_AP_SEC_KEY_MGMT_802_1X > 0
+                ap_dict[ssid]['wep'] = ((ap_flags & NM_802_11_AP_FLAGS_PRIVACY > 0) and
+                                        (ap_wpa_flags == NM_802_11_AP_SEC_NONE) and
+                                        (ap_rsn_flags == NM_802_11_AP_SEC_NONE))
+                ap_dict[ssid]['psk'] = ((ap_wpa_flags & NM_802_11_AP_SEC_KEY_MGMT_PSK > 0) or
+                                        (ap_rsn_flags & NM_802_11_AP_SEC_KEY_MGMT_PSK > 0))
+                ap_dict[ssid]['eap'] = ((ap_wpa_flags & NM_802_11_AP_SEC_KEY_MGMT_802_1X > 0) or
+                                        (ap_rsn_flags & NM_802_11_AP_SEC_KEY_MGMT_802_1X > 0))
             except dbus.exceptions.DBusException:
                 # Can occur as APs are removed, just move on to the next AP
                 pass

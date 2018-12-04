@@ -23,8 +23,8 @@ class VirtualSerialPortService(gattsvc.Service):
         self.vsp_tx = VspTxCharacteristic(bus, 1, self)
         self.add_characteristic(self.vsp_tx)
 
-    def tx(self, message):
-        self.vsp_tx.tx(message)
+    def tx(self, message, tx_complete=None):
+        self.vsp_tx.tx(message, tx_complete)
 
 class VspRxCharacteristic(gattsvc.Characteristic):
     """
@@ -60,34 +60,42 @@ class VspTxCharacteristic(gattsvc.Characteristic):
         self.tx_mutex = threading.RLock()
         self.tx_queue = Queue.Queue()
         self.tx_remain = None
+        self.tx_complete = None
 
     def send_next_chunk(self):
         # Slice message up into first chunk and remainder
         tx_chunk = None
+        tx_complete = None
         self.tx_mutex.acquire()
         if self.tx_remain and len(self.tx_remain) > 0:
             tx_chunk = self.tx_remain[:MAX_TX_LEN]
             self.tx_remain = self.tx_remain[MAX_TX_LEN:]
             if len(self.tx_remain) == 0:
+                # Setup callback
+                tx_complete = self.tx_complete
                 # Get next message from queue
                 if not self.tx_queue.empty():
-                    self.tx_remain = self.tx_queue.get_nowait()
+                    self.tx_remain, self.tx_complete = self.tx_queue.get_nowait()
                 else:
                     self.tx_remain = None
+                    self.tx_complete = None
         self.tx_mutex.release()
         if tx_chunk and len(tx_chunk) > 0:
             # Convert string to array of DBus Bytes & send
             val = [dbus.Byte(b) for b in bytearray(tx_chunk)]
             self.PropertiesChanged(gattsvc.GATT_CHRC_IFACE, { 'Value' : val }, [])
+        if tx_complete:
+            tx_complete()
 
-    def tx(self, message):
+    def tx(self, message, tx_complete):
         self.tx_mutex.acquire()
         if self.tx_remain and len(self.tx_remain) > 0:
             # Message in progress, queue for later
-            self.tx_queue.put_nowait(message)
+            self.tx_queue.put_nowait((message, tx_complete))
         else:
             # Send immediately
             self.tx_remain = message
+            self.tx_complete = tx_complete
         self.tx_mutex.release()
         self.send_next_chunk()
 

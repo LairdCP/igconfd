@@ -48,6 +48,8 @@ class MessageManager():
         self.activation_start_time = 0
         self.activation_msg_time = 0
         self.provision_msg_time = 0
+        self.ap_first_scan = False
+        self.ap_req_obj = None
 
     def is_provisioned(self):
         return self.prov_manager.get_prov_state() == ProvManager.PROV_COMPLETE_SUCCESS
@@ -60,14 +62,14 @@ class MessageManager():
         """
         GObject.timeout_add(0, self.handle_command, req_obj)
 
-    def send_response(self, req_obj, status, data=None):
+    def send_response(self, req_obj, status, data=None, tx_complete=None):
         """Send a response message based on the request, with optional data
         """
         resp_obj = { MSG_VERSION : MSG_VERSION_VAL, MSG_ID : req_obj[MSG_ID],
                      MSG_TYPE : req_obj[MSG_TYPE], MSG_STATUS : status }
         if data:
             resp_obj[MSG_DATA] = data
-        self.tx_msg(json.dumps(resp_obj, separators=(',',':')))
+        self.tx_msg(json.dumps(resp_obj, separators=(',',':')), tx_complete)
 
     def handle_command(self, req_obj):
         """Process a request object
@@ -102,18 +104,44 @@ class MessageManager():
         dev_id = { 'deviceId' : self.net_manager.get_wlan_hw_address() }
         self.send_response(req_obj, MSG_STATUS_SUCCESS, data=dev_id)
 
+    """
+    NOTE: For some reason, using the NetworkManager API to query each
+          AP object is very slow, so we process the AP list
+          in batches and send them to the client.  Also, reading the APs
+          causes the Tx on the BLE GATT characteristic to slow down,
+          which leads to long delays (timeouts) for the client.  So,
+          the code below implements a callback when the BLE Tx is
+          complete.  Thus we only process the AP list after the last
+          message was sent, then send the message once we've processed
+          the AP list; this ends up being more responsive to the client.
+    """
+    def ap_scan_tx_complete(self):
+        """Callback for AP scan list TX complete
+        """
+        # Schedule call on main loop to process more results
+        GObject.timeout_add(0, self.get_ap_cb)
+        pass
+
+    def get_ap_cb(self):
+        """Timer callback to process AP list
+        """
+        aplist = self.net_manager.get_access_points(GET_AP_INTERMEDIATE_TIMEOUT, not self.ap_first_scan)
+        self.ap_first_scan = False
+        if aplist and len(aplist) > 0:
+            # Send response with TX complete callback to get more
+            self.send_response(self.ap_req_obj, MSG_STATUS_INTERMEDIATE, data=aplist, tx_complete=self.ap_scan_tx_complete)
+        else:
+            # Send final response
+            self.send_response(self.ap_req_obj, MSG_STATUS_SUCCESS)
+            self.ap_req_obj = None
+
     def req_get_access_points(self, req_obj):
         """Handle Get Access Points request
         """
-        # Send response indicating request in progress
-        self.send_response(req_obj, MSG_STATUS_INTERMEDIATE)
-        # Collect APs with a timeout & send
-        aplist = self.net_manager.get_access_points(GET_AP_INTERMEDIATE_TIMEOUT)
-        while aplist and len(aplist) > 0:
-            self.send_response(req_obj, MSG_STATUS_INTERMEDIATE, data=aplist)
-            aplist = self.net_manager.get_access_points(GET_AP_INTERMEDIATE_TIMEOUT, True)
-        # Send final response
-        self.send_response(req_obj, MSG_STATUS_SUCCESS)
+        self.ap_req_obj = req_obj
+        self.ap_first_scan = True
+        # Send response indicating request in progress, with TX complete callback to scan
+        self.send_response(req_obj, MSG_STATUS_INTERMEDIATE, tx_complete=self.ap_scan_tx_complete)
 
     def check_activation(self, req_obj):
         status = self.net_manager.get_activation_status()
