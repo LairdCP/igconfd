@@ -16,10 +16,11 @@ class LEAdvertData(dbus.service.Object):
     """
     PATH_BASE = '/org/bluez/gatt/leadvertdata'
 
-    def __init__(self, bus, index, service_uuids):
+    def __init__(self, bus, index, service_uuids, device_name):
         self.path = self.PATH_BASE + str(index)
         self.bus = bus
         self.service_uuids = service_uuids
+        self.device_name = device_name
         dbus.service.Object.__init__(self, bus, self.path)
 
     def get_properties(self):
@@ -27,7 +28,7 @@ class LEAdvertData(dbus.service.Object):
                 LE_ADVERT_DATA_IFACE: {
 						'ServiceUUIDs': self.service_uuids,
                         'Type': 'peripheral',
-                        'LocalName': 'Laird IG60'
+                        'LocalName': self.device_name
                 }
         }
 

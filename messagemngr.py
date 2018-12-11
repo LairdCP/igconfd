@@ -41,8 +41,8 @@ PROVISION_INTERMEDIATE_TIMEOUT = 2
 PROVISION_TIMER_MS = 500
 
 class MessageManager():
-    def __init__(self, shutdown_cb):
-        self.net_manager = NetManager()
+    def __init__(self, net_manager, shutdown_cb):
+        self.net_manager = net_manager
         self.prov_manager = ProvManager()
         self.shutdown_cb = shutdown_cb
         self.activation_start_time = 0

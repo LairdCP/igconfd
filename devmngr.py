@@ -5,9 +5,10 @@ devmngr - BLE Device Manager functionality for the BLE configuration service
 import dbus, dbus.service, dbus.exceptions
 import json
 import subprocess
-import messagemngr
 import leadvert
 import vspsvc
+from messagemngr import MessageManager
+from netmngr import NetManager
 from syslog import syslog
 
 try:
@@ -88,13 +89,17 @@ class Application(dbus.service.Object):
 class DeviceManager():
     def __init__(self):
         self.bus = dbus.SystemBus()
-        self.msg_manager = messagemngr.MessageManager(self.stop)
+        self.net_manager = NetManager()
+        self.msg_manager = MessageManager(self.net_manager, self.stop)
         self.adapter = self.find_obj_by_iface(GATT_MANAGER_IFACE)
         self.gatt_manager = dbus.Interface(self.bus.get_object(BLUEZ_SERVICE_NAME,
             self.adapter), GATT_MANAGER_IFACE)
         self.advert_manager = dbus.Interface(self.bus.get_object(BLUEZ_SERVICE_NAME,
             self.adapter), LE_ADVERT_MGR_IFACE)
-        self.le_adv_data = leadvert.LEAdvertData(self.bus, 0, [vspsvc.UUID_VSP_SVC])
+        wlan_mac_addr = self.net_manager.get_wlan_hw_address()
+        device_name = 'Laird IG60 ({})'.format(wlan_mac_addr[-8:])
+        self.le_adv_data = leadvert.LEAdvertData(self.bus, 0, [vspsvc.UUID_VSP_SVC],
+            device_name)
         self.vsp_app = Application(self.bus, self.msg_manager)
         self.device_svc = dbus.Interface(self.bus.get_object(DEVICE_SVC_NAME,
             DEVICE_SVC_PATH), DEVICE_IFACE)
