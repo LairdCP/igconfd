@@ -50,6 +50,7 @@ class MessageManager():
         self.provision_msg_time = 0
         self.ap_first_scan = False
         self.ap_req_obj = None
+        self.ap_scanning = False
 
     def is_provisioned(self):
         return self.prov_manager.get_prov_state() == ProvManager.PROV_COMPLETE_SUCCESS
@@ -118,28 +119,35 @@ class MessageManager():
     def ap_scan_tx_complete(self):
         """Callback for AP scan list TX complete
         """
-        # Schedule call on main loop to process more results
-        GObject.timeout_add(0, self.get_ap_cb)
-        pass
+        # Only continue if scanning was not cancelled
+        if self.ap_scanning:
+            # Schedule call on main loop to process more results
+            GObject.timeout_add(0, self.get_ap_cb)
 
     def get_ap_cb(self):
         """Timer callback to process AP list
         """
         aplist = self.net_manager.get_access_points(GET_AP_INTERMEDIATE_TIMEOUT, not self.ap_first_scan)
         self.ap_first_scan = False
-        if aplist and len(aplist) > 0:
-            # Send response with TX complete callback to get more
-            self.send_response(self.ap_req_obj, MSG_STATUS_INTERMEDIATE, data=aplist, tx_complete=self.ap_scan_tx_complete)
-        else:
-            # Send final response
-            self.send_response(self.ap_req_obj, MSG_STATUS_SUCCESS)
-            self.ap_req_obj = None
+        # Only continue if scanning was not cancelled
+        if self.ap_scanning:
+            if aplist and len(aplist) > 0:
+                # Send response with TX complete callback to get more
+                syslog('Sending intermediate list of {} APs.'.format(len(aplist)))
+                self.send_response(self.ap_req_obj, MSG_STATUS_INTERMEDIATE, data=aplist, tx_complete=self.ap_scan_tx_complete)
+            else:
+                # Send final response
+                syslog('Sending final AP response')
+                self.send_response(self.ap_req_obj, MSG_STATUS_SUCCESS)
+                self.ap_req_obj = None
+                self.ap_scanning = False
 
     def req_get_access_points(self, req_obj):
         """Handle Get Access Points request
         """
         self.ap_req_obj = req_obj
         self.ap_first_scan = True
+        self.ap_scanning = True
         # Send response indicating request in progress, with TX complete callback to scan
         self.send_response(req_obj, MSG_STATUS_INTERMEDIATE, tx_complete=self.ap_scan_tx_complete)
 
@@ -170,6 +178,8 @@ class MessageManager():
     def req_connect_ap(self, req_obj):
         """Handle Connect to AP message
         """
+        # Cancel AP scan if in progress
+        self.ap_scanning = False
         # Issue request to Network Manager
         if 'data' in req_obj and self.net_manager.activate_connection(req_obj['data']):
             # Config succeeded, connection in progress
@@ -202,6 +212,8 @@ class MessageManager():
             return True
 
     def check_provision(self, req_obj):
+        # Cancel AP scan if in progress
+        self.ap_scanning = False
         status = self.prov_manager.get_prov_state()
         ret = self.send_prov_response(req_obj, status)
         if ret and time.time() - self.provision_msg_time > PROVISION_INTERMEDIATE_TIMEOUT:
