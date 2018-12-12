@@ -21,7 +21,7 @@ DBUS_PROP_IFACE = 'org.freedesktop.DBus.Properties'
 BLUEZ_SERVICE_NAME = 'org.bluez'
 GATT_MANAGER_IFACE = 'org.bluez.GattManager1'
 ADAPTER_IFACE = 'org.bluez.Adapter1'
-DEVICE_IFACE = 'org.bluez.Device1'
+BLUEZ_DEVICE_IFACE = 'org.bluez.Device1'
 LE_ADVERT_MGR_IFACE = 'org.bluez.LEAdvertisingManager1'
 DEVICE_SVC_NAME = 'com.lairdtech.device.DeviceService'
 DEVICE_SVC_PATH = '/com/lairdtech/device/DeviceService'
@@ -104,6 +104,16 @@ class DeviceManager():
         self.device_svc = dbus.Interface(self.bus.get_object(DEVICE_SVC_NAME,
             DEVICE_SVC_PATH), DEVICE_IFACE)
 
+    def find_objs_by_iface(self, iface):
+        found_objs = []
+        remote_om = dbus.Interface(self.bus.get_object(BLUEZ_SERVICE_NAME, '/'),
+            DBUS_OM_IFACE)
+        objects = remote_om.GetManagedObjects()
+        for o, props in objects.items():
+            if iface in props.keys():
+                found_objs.append(o)
+        return found_objs
+
     def find_obj_by_iface(self, iface):
         remote_om = dbus.Interface(self.bus.get_object(BLUEZ_SERVICE_NAME, '/'),
             DBUS_OM_IFACE)
@@ -125,6 +135,19 @@ class DeviceManager():
     def register_ad_error_cb(self, error):
         syslog('Failed to register LE advertisement: ' + str(error))
 
+    def disconnect_devices(self):
+        device_objs = self.find_objs_by_iface(BLUEZ_DEVICE_IFACE)
+        if device_objs:
+            for d in device_objs:
+                syslog('Found device: {}'.format(d))
+                dev = dbus.Interface(self.bus.get_object(BLUEZ_SERVICE_NAME,
+                    d), BLUEZ_DEVICE_IFACE)
+                dev_props = dbus.Interface(self.bus.get_object(BLUEZ_SERVICE_NAME,
+                    d), DBUS_PROP_IFACE)
+                if dev_props.Get(BLUEZ_DEVICE_IFACE, 'Connected'):
+                    syslog('Disconnecting device {}'.format(dev_props.Get(BLUEZ_DEVICE_IFACE, 'Address')))
+                    dev.Disconnect()
+
     def start_provisioning_service(self):
         self.device_svc.SetBLEState(BLE_STATE_ACTIVE)
         syslog('Registering GATT application...')
@@ -139,6 +162,7 @@ class DeviceManager():
         subprocess.call(['btmgmt', 'ssp', 'on'])
 
     def stop_provisioning_service(self):
+        self.disconnect_devices()
         self.device_svc.SetBLEState(BLE_STATE_INACTIVE)
         syslog('Disabling pairing via SSP.')
         subprocess.call(['btmgmt', 'ssp', 'off'])
