@@ -150,6 +150,16 @@ class DeviceManager():
 
     def start_provisioning_service(self):
         self.device_svc.SetBLEState(BLE_STATE_ACTIVE)
+        syslog('Configuring BLE advertisement settings.')
+        # Need to use BlueZ util to set these, they are not
+        # available via DBus API.
+        subprocess.call(['btmgmt', 'power', 'off'])
+        subprocess.call(['btmgmt', 'le', 'on'])
+        subprocess.call(['btmgmt', 'connectable', 'on'])
+        subprocess.call(['btmgmt', 'bredr', 'off'])
+        subprocess.call(['btmgmt', 'io-cap', '3'])
+        subprocess.call(['btmgmt', 'bondable', 'off'])
+        subprocess.call(['btmgmt', 'power', 'on'])
         syslog('Registering GATT application...')
         self.gatt_manager.RegisterApplication(self.vsp_app.get_path(), {},
             reply_handler=self.register_app_cb,
@@ -158,8 +168,6 @@ class DeviceManager():
         self.advert_manager.RegisterAdvertisement(self.le_adv_data.get_path(), {},
             reply_handler=self.register_ad_cb,
             error_handler=self.register_ad_error_cb)
-        syslog('Enabling pairing via SSP.')
-        subprocess.call(['btmgmt', 'ssp', 'on'])
 
     def stop_provisioning_service(self):
         self.disconnect_devices()
