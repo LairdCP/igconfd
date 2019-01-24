@@ -38,7 +38,7 @@ class Application(dbus.service.Object):
         self.path = '/'
         self.services = []
         dbus.service.Object.__init__(self, bus, self.path)
-        self.vsp_svc = vspsvc.VirtualSerialPortService(bus, 0, self.rx_cb)
+        self.vsp_svc = vspsvc.VirtualSerialPortService(bus, 0, self.rx_cb, self.disc_cb)
         self.add_service(self.vsp_svc)
         self.rx_timeout_id = None
         self.rx_message = None
@@ -81,10 +81,15 @@ class Application(dbus.service.Object):
          try:
              req_obj = json.loads(self.rx_message)
              syslog('JSON request decoded.')
+             self.vsp_svc.flush_tx()
              self.msg_manager.add_request(req_obj)
              self.rx_message = None
          except ValueError:
-             self.rx_timeout_id = GObject.timeout_add(2000, self.rx_timeout_cb)
+             self.rx_timeout_id = GObject.timeout_add(2000, self.rx_timeout)
+
+    def disc_cb(self):
+        syslog('Client disconnected.')
+        self.msg_manager.client_disconnect()
 
 class DeviceManager():
     def __init__(self):

@@ -17,14 +17,17 @@ class VirtualSerialPortService(gattsvc.Service):
     """
     Contains the Rx and Tx characteristics
     """
-    def __init__(self, bus, index, rx_cb):
+    def __init__(self, bus, index, rx_cb, disc_cb):
         gattsvc.Service.__init__(self, bus, index, UUID_VSP_SVC, True)
         self.add_characteristic(VspRxCharacteristic(bus, 0, self, rx_cb))
-        self.vsp_tx = VspTxCharacteristic(bus, 1, self)
+        self.vsp_tx = VspTxCharacteristic(bus, 1, self, disc_cb)
         self.add_characteristic(self.vsp_tx)
 
     def tx(self, message, tx_complete=None):
         self.vsp_tx.tx(message, tx_complete)
+
+    def flush_tx(self):
+        self.vsp_tx.flush_tx()
 
 class VspRxCharacteristic(gattsvc.Characteristic):
     """
@@ -49,7 +52,7 @@ class VspTxCharacteristic(gattsvc.Characteristic):
     """
     Transfer the file to the client through indications
     """
-    def __init__(self, bus, index, service):
+    def __init__(self, bus, index, service, disc_cb):
         gattsvc.Characteristic.__init__(
                 self, bus, index,
                 UUID_VSP_TX,
@@ -61,6 +64,7 @@ class VspTxCharacteristic(gattsvc.Characteristic):
         self.tx_queue = Queue.Queue()
         self.tx_remain = None
         self.tx_complete = None
+        self.disc_cb = disc_cb
 
     def send_next_chunk(self):
         # Slice message up into first chunk and remainder
@@ -99,11 +103,21 @@ class VspTxCharacteristic(gattsvc.Characteristic):
         self.tx_mutex.release()
         self.send_next_chunk()
 
+    def flush_tx(self):
+        # Flush any pending Tx data
+        self.tx_mutex.acquire()
+        self.tx_remain = None
+        self.tx_complete = None
+        self.tx_mutex.release()
+
     def StartNotify(self):
         syslog('GATT client subscribed to Tx.')
 
     def StopNotify(self):
         syslog('GATT client unsubscribed from Tx.')
+        self.flush_tx()
+        # Notify disconnect via callback
+        self.disc_cb()
 
     def Confirm(self):
         self.send_next_chunk()

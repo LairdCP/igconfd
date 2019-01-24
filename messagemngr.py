@@ -98,7 +98,14 @@ class MessageManager():
     def add_request(self, req_obj):
         """Schedule request handler to run on main loop
         """
+        # Cancel any current AP scan
+        self.ap_scanning = False
         GObject.timeout_add(0, self.handle_command, req_obj)
+
+    def client_disconnect(self):
+        # Reset message state on client disconnect
+        syslog('BLE client disconnected, resetting state.')
+        self.ap_scanning = False
 
     def send_response(self, req_obj, status, data=None, tx_complete=None):
         """Send a response message based on the request, with optional data
@@ -107,6 +114,7 @@ class MessageManager():
                      MSG_TYPE : req_obj[MSG_TYPE], MSG_STATUS : status }
         if data:
             resp_obj[MSG_DATA] = data
+        syslog('Sending {} response ({})'.format(resp_obj[MSG_TYPE], resp_obj[MSG_STATUS]))
         self.tx_msg(json.dumps(resp_obj, separators=(',',':')), tx_complete)
 
     def handle_command(self, req_obj):
