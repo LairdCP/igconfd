@@ -95,6 +95,12 @@ def create_wireless_config(conn_name, config_data):
             })
             if 'phase2-auth' in config_data:
                 wireless_config['802-1x']['phase2-auth'] = dbus.Array([config_data['phase2-auth']])
+        if config_data.get('disable-ipv6', False):
+            wireless_config['ipv6'] = dbus.Dictionary({
+                'method' : 'auto',
+                'ignore-auto-dns' : True,
+                'never-default' : True
+            })
     except KeyError:
         syslog('Invalid input configuration')
         wireless_config = {}
