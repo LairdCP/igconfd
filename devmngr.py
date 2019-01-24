@@ -103,6 +103,8 @@ class DeviceManager():
         self.vsp_app = Application(self.bus, self.msg_manager)
         self.device_svc = dbus.Interface(self.bus.get_object(DEVICE_SVC_NAME,
             DEVICE_SVC_PATH), DEVICE_IFACE)
+        self.device_svc.connect_to_signal('ConfigButtonPress', self.config_button_press)
+        self.init_ble_service()
 
     def find_objs_by_iface(self, iface):
         found_objs = []
@@ -148,8 +150,7 @@ class DeviceManager():
                     syslog('Disconnecting device {}'.format(dev_props.Get(BLUEZ_DEVICE_IFACE, 'Address')))
                     dev.Disconnect()
 
-    def start_provisioning_service(self):
-        self.device_svc.SetBLEState(BLE_STATE_ACTIVE)
+    def init_ble_service(self):
         syslog('Configuring BLE advertisement settings.')
         # Need to use BlueZ util to set these, they are not
         # available via DBus API.
@@ -159,7 +160,6 @@ class DeviceManager():
         subprocess.call(['btmgmt', 'bredr', 'off'])
         subprocess.call(['btmgmt', 'io-cap', '3'])
         subprocess.call(['btmgmt', 'bondable', 'off'])
-        subprocess.call(['btmgmt', 'power', 'on'])
         syslog('Registering GATT application...')
         self.gatt_manager.RegisterApplication(self.vsp_app.get_path(), {},
             reply_handler=self.register_app_cb,
@@ -169,23 +169,37 @@ class DeviceManager():
             reply_handler=self.register_ad_cb,
             error_handler=self.register_ad_error_cb)
 
-    def stop_provisioning_service(self):
-        self.disconnect_devices()
-        self.device_svc.SetBLEState(BLE_STATE_INACTIVE)
-        syslog('Disabling pairing via SSP.')
-        subprocess.call(['btmgmt', 'ssp', 'off'])
+    def deinit_ble_service(self):
         syslog('Unregistering LE Advertisement Data...')
         self.advert_manager.UnregisterAdvertisement(self.le_adv_data.get_path())
         syslog('Unregistering GATT application...')
         self.gatt_manager.UnregisterApplication(self.vsp_app.get_path())
+
+    def enable_ble_service(self):
+        syslog('Enabling BLE service.')
+        self.device_svc.SetBLEState(BLE_STATE_ACTIVE)
+        subprocess.call(['btmgmt', 'power', 'on'])
+
+    def disable_ble_service(self):
+        syslog('Disabling BLE service.')
+        self.disconnect_devices()
+        self.device_svc.SetBLEState(BLE_STATE_INACTIVE)
+        subprocess.call(['btmgmt', 'power', 'off'])
 
     def start(self):
         if self.msg_manager.is_provisioned():
             syslog('Device is provisioned, skipping BLE service.')
         else:
             syslog('Device is not provisioned, starting BLE service...')
-            self.start_provisioning_service()
+            self.enable_ble_service()
 
     def stop(self):
         # Stop after a delay to allow last status message to be sent
-        GObject.timeout_add(2000, self.stop_provisioning_service)
+        GObject.timeout_add(2000, self.disable_ble_service)
+
+    def config_button_press(self, press_type):
+        # If button is pressed (short) and already provisioned, enable service
+        if press_type == 0 and self.msg_manager.is_provisioned():
+            syslog('Config button pressed, enabling BLE service.')
+            self.enable_ble_service()
+

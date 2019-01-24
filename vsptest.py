@@ -81,6 +81,11 @@ def req_version():
     o = await_resp(5)
     print json.dumps(o, sort_keys=True, indent=4, separators=(',', ': '))
 
+def req_device_caps():
+    send_req('getDeviceCaps')
+    o = await_resp(5)
+    print json.dumps(o, sort_keys=True, indent=4, separators=(',', ': '))
+
 def req_aps():
     send_req('getAccessPoints')
     o = await_resp(15)
@@ -104,6 +109,18 @@ def req_connect_ap(conn):
 
 def req_provision(data):
     send_req('provisionURL', data=data)
+    o = await_resp(10)
+    while o:
+        print json.dumps(o, sort_keys=True, indent=4, separators=(',', ': '))
+        o = await_resp(10)
+
+def req_storage_info():
+    send_req('getStorageInfo')
+    o = await_resp(5)
+    print json.dumps(o, sort_keys=True, indent=4, separators=(',', ': '))
+
+def req_storage_swap():
+    send_req('extStorageSwap')
     o = await_resp(10)
     while o:
         print json.dumps(o, sort_keys=True, indent=4, separators=(',', ': '))
