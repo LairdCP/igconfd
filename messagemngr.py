@@ -270,6 +270,9 @@ class MessageManager():
         elif status == ProvManager.PROV_FAILED_TIMEOUT:
             self.send_response(req_obj, MSG_STATUS_ERR_TIMEOUT)
             return False
+        elif status == ProvManager.PROV_FAILED_CONNECT:
+            self.send_response(req_obj, MSG_STATUS_ERR_NOTFOUND)
+            return False
         elif status < 0: # All other failures
             self.send_response(req_obj, MSG_STATUS_ERR_NOCONN)
             return False
