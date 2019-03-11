@@ -66,7 +66,8 @@ def create_wireless_config(conn_name, config_data):
                 }),
             '802-11-wireless' : dbus.Dictionary({
                 'mode' : 'infrastructure',
-                'ssid' : dbus.ByteArray(config_data['ssid'])
+                'ssid' : dbus.ByteArray(config_data['ssid']),
+                'hidden': True
                 })
         })
         if 'psk' in config_data:
