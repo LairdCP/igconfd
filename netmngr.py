@@ -50,12 +50,12 @@ NM_CONNECTION_ACTIVE_IFACE = 'org.freedesktop.NetworkManager.Connection.Active'
 NM_AP_IFACE = 'org.freedesktop.NetworkManager.AccessPoint'
 
 IG_CONN_NAME = 'ig-connection'
-
+PAC_FILE = '/var/lib/private/autoP.pac'
 """
 Create a NetworkManager wireless configuration from
 the BLE input configuration data
 """
-def create_wireless_config(conn_name, config_data):
+def create_wireless_config(conn_name, wlan_mac_addr, config_data):
     try:
         wireless_config = dbus.Dictionary({
             b'connection' : dbus.Dictionary({
@@ -91,11 +91,17 @@ def create_wireless_config(conn_name, config_data):
             })
             wireless_config['802-1x'] = dbus.Dictionary({
                 b'eap' : dbus.Array([config_data['eap']]),
-                b'identity' : config_data['identity'].encode(),
-                b'password' : config_data['password'].encode()
-            })
-            if 'phase2-auth' in config_data:
+                b'identity' : config_data['identity'],
+                b'password' : config_data['password']})
+
+            if 'fast' == config_data['eap']:
+                wireless_config['802-1x']['anonymous-identity'] = 'FAST-'+wlan_mac_addr
+                wireless_config['802-1x']['phase1-fast-provisioning'] = 3
+                wireless_config['802-1x']['pac-file'] = PAC_FILE
+                wireless_config['802-1x']['phase2-auth'] = dbus.Array(['gtc', 'mschapv2'])
+            elif 'phase2-auth' in config_data:
                 wireless_config['802-1x']['phase2-auth'] = dbus.Array([config_data['phase2-auth']])
+
         if config_data.get('disable-ipv6', False):
             wireless_config['ipv6'] = dbus.Dictionary({
                 b'method' : b'auto',
@@ -177,7 +183,8 @@ class NetManager():
     def activate_connection(self, config_data):
         self.activation_status = self.ACTIVATION_PENDING
         try:
-            conn = create_wireless_config(IG_CONN_NAME, config_data)
+            wlan_mac_addr = self.get_wlan_hw_address()
+            conn = create_wireless_config(IG_CONN_NAME, wlan_mac_addr, config_data)
             self.new_conn_obj = self.nm_settings.AddConnection(conn)
             self.nm.ActivateConnection(self.new_conn_obj, self.wifi_dev_obj, '/')
             return True
