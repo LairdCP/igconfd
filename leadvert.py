@@ -45,4 +45,4 @@ class LEAdvertData(dbus.service.Object):
 
     @dbus.service.method(LE_ADVERT_DATA_IFACE)
     def Release(self, options):
-		pass
+        pass

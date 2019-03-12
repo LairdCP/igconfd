@@ -40,9 +40,9 @@ class ProvManager():
     def start_provisioning(self, prov_data):
         syslog('Starting provisioning.')
         try:
-            return self.prov.StartProvisioning(prov_data['url'],
-                { 'username' : prov_data['username'],
-                  'password' : prov_data['password'] } )
+            return self.prov.StartProvisioning(prov_data['url'].encode(),
+                { 'username' : prov_data['username'].encode(),
+                  'password' : prov_data['password'].encode() } )
         except KeyError:
             syslog('Invalid provisioning request data.')
             return self.PROV_FAILED_INVALID

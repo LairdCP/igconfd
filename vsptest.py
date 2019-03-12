@@ -3,7 +3,13 @@ import json
 import threading
 import string
 import random
-import Queue
+
+import sys
+PYTHON3 = sys.version_info >= (3, 0)
+if PYTHON3:
+    import queue as Queue
+else:
+    import Queue
 
 DEFAULT_ADDR = 'c0:ee:40:50:27:03'
 
@@ -74,17 +80,17 @@ def scan():
 def req_device_id():
     send_req('getDeviceId')
     o = await_resp(5)
-    print json.dumps(o, sort_keys=True, indent=4, separators=(',', ': '))
+    print(json.dumps(o, sort_keys=True, indent=4, separators=(',', ': ')))
 
 def req_version():
     send_req('version')
     o = await_resp(5)
-    print json.dumps(o, sort_keys=True, indent=4, separators=(',', ': '))
+    print(json.dumps(o, sort_keys=True, indent=4, separators=(',', ': ')))
 
 def req_device_caps():
     send_req('getDeviceCaps')
     o = await_resp(5)
-    print json.dumps(o, sort_keys=True, indent=4, separators=(',', ': '))
+    print(json.dumps(o, sort_keys=True, indent=4, separators=(',', ': ')))
 
 def req_aps():
     send_req('getAccessPoints')
@@ -104,26 +110,26 @@ def req_connect_ap(conn):
     send_req('connectAP', data=conn)
     o = await_resp(10)
     while o:
-        print json.dumps(o, sort_keys=True, indent=4, separators=(',', ': '))
+        print(json.dumps(o, sort_keys=True, indent=4, separators=(',', ': ')))
         o = await_resp(10)
 
 def req_provision(data):
     send_req('provisionURL', data=data)
     o = await_resp(10)
     while o:
-        print json.dumps(o, sort_keys=True, indent=4, separators=(',', ': '))
+        print(json.dumps(o, sort_keys=True, indent=4, separators=(',', ': ')))
         o = await_resp(10)
 
 def req_storage_info():
     send_req('getStorageInfo')
     o = await_resp(5)
-    print json.dumps(o, sort_keys=True, indent=4, separators=(',', ': '))
+    print(json.dumps(o, sort_keys=True, indent=4, separators=(',', ': ')))
 
 def req_storage_swap():
     send_req('extStorageSwap')
     o = await_resp(10)
     while o:
-        print json.dumps(o, sort_keys=True, indent=4, separators=(',', ': '))
+        print(json.dumps(o, sort_keys=True, indent=4, separators=(',', ': ')))
         o = await_resp(10)
 
 # Start adapter

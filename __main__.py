@@ -1,21 +1,26 @@
 import dbus, dbus.service, dbus.exceptions
-import sys, signal
+import signal
 from syslog import syslog, openlog
 from dbus.mainloop.glib import DBusGMainLoop
 import systemd
 import systemd.daemon
 import devmngr
 
-try:
-  from gi.repository import GObject
-except ImportError:
-  import gobject as GObject
+import sys
+PYTHON3 = sys.version_info >= (3, 0)
+if PYTHON3:
+    from gi.repository import GObject as gobject
+    from gi.repository import GLib as glib
+else:
+    import gobject
 
 def main():
-    GObject.threads_init()
+    gobject.threads_init()
     dbus.mainloop.glib.DBusGMainLoop(set_as_default=True)
-
-    mainloop = GObject.MainLoop()
+    if PYTHON3:
+        mainloop = glib.MainLoop()
+    else:
+        mainloop = gobject.MainLoop()
 
     device_manager = devmngr.DeviceManager()
 

@@ -11,10 +11,12 @@ from messagemngr import MessageManager
 from netmngr import NetManager
 from syslog import syslog
 
-try:
-  from gi.repository import GObject
-except ImportError:
-  import gobject as GObject
+import sys
+PYTHON3 = sys.version_info >= (3, 0)
+if PYTHON3:
+    from gi.repository import GObject as gobject
+else:
+    import gobject
 
 DBUS_OM_IFACE = 'org.freedesktop.DBus.ObjectManager'
 DBUS_PROP_IFACE = 'org.freedesktop.DBus.Properties'
@@ -76,7 +78,7 @@ class Application(dbus.service.Object):
     def rx_cb(self, message):
          self.rx_message = (self.rx_message or '') + message
          if self.rx_timeout_id:
-             GObject.source_remove(self.rx_timeout_id)
+             gobject.source_remove(self.rx_timeout_id)
              self.rx_timeout_id = None
          try:
              req_obj = json.loads(self.rx_message)
@@ -85,7 +87,7 @@ class Application(dbus.service.Object):
              self.msg_manager.add_request(req_obj)
              self.rx_message = None
          except ValueError:
-             self.rx_timeout_id = GObject.timeout_add(2000, self.rx_timeout)
+             self.rx_timeout_id = gobject.timeout_add(2000, self.rx_timeout)
 
     def disc_cb(self):
         syslog('Client disconnected.')
@@ -200,7 +202,7 @@ class DeviceManager():
 
     def stop(self):
         # Stop after a delay to allow last status message to be sent
-        GObject.timeout_add(2000, self.disable_ble_service)
+        gobject.timeout_add(2000, self.disable_ble_service)
 
     def config_button_press(self, press_type):
         # If button is pressed (short) and already provisioned, enable service

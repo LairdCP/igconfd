@@ -3,9 +3,15 @@ Gatt server implementation of virtual serial port using characteristics
 """
 import dbus
 import threading
-import Queue
 import gattsvc
 from syslog import syslog, openlog
+
+import sys
+PYTHON3 = sys.version_info >= (3, 0)
+if PYTHON3:
+    import queue as Queue
+else:
+    import Queue
 
 UUID_VSP_SVC =         'be98076e-8e8d-11e8-9eb6-529269fb1459'
 UUID_VSP_RX =          'be980b1a-8e8d-11e8-9eb6-529269fb1459'
@@ -95,10 +101,10 @@ class VspTxCharacteristic(gattsvc.Characteristic):
         self.tx_mutex.acquire()
         if self.tx_remain and len(self.tx_remain) > 0:
             # Message in progress, queue for later
-            self.tx_queue.put_nowait((message, tx_complete))
+            self.tx_queue.put_nowait((message.encode(), tx_complete))
         else:
             # Send immediately
-            self.tx_remain = message
+            self.tx_remain = message.encode()
             self.tx_complete = tx_complete
         self.tx_mutex.release()
         self.send_next_chunk()

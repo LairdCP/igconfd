@@ -5,10 +5,12 @@ from netmngr import NetManager
 from provmngr import ProvManager
 from syslog import syslog
 
-try:
-  from gi.repository import GObject
-except ImportError:
-  import gobject as GObject
+import sys
+PYTHON3 = sys.version_info >= (3, 0)
+if PYTHON3:
+    from gi.repository import GObject as gobject
+else:
+    import gobject
 
 ''' JSON Message Strings '''
 MSG_VERSION = 'version'
@@ -68,6 +70,22 @@ EXT_STORAGE_STATUS_PROP = 'ExtStorageStatus'
 
 STORAGE_SWAP_TIMER_MS = 2000
 
+def convert_dict_keys_values_to_string(data):
+    """Convert dict's keys & values from 'bytes' to 'string'
+    """
+    if isinstance(data, bytes):
+        return data.decode("utf-8")
+    if isinstance(data, dict):
+        return dict(map(convert_dict_keys_values_to_string, data.items()))
+    if isinstance(data, tuple):
+        return tuple(map(convert_dict_keys_values_to_string, data))
+    if isinstance(data, list):
+        return list(map(convert_dict_keys_values_to_string, data))
+    if isinstance(data, set):
+        return set(map(convert_dict_keys_values_to_string, data))
+    return data
+
+
 class MessageManager():
     def __init__(self, net_manager, shutdown_cb):
         self.net_manager = net_manager
@@ -100,7 +118,7 @@ class MessageManager():
         """
         # Cancel any current AP scan
         self.ap_scanning = False
-        GObject.timeout_add(0, self.handle_command, req_obj)
+        gobject.timeout_add(0, self.handle_command, req_obj)
 
     def client_disconnect(self):
         # Reset message state on client disconnect
@@ -110,12 +128,15 @@ class MessageManager():
     def send_response(self, req_obj, status, data=None, tx_complete=None):
         """Send a response message based on the request, with optional data
         """
-        resp_obj = { MSG_VERSION : MSG_VERSION_VAL, MSG_ID : req_obj[MSG_ID],
+        try:
+            resp_obj = { MSG_VERSION : MSG_VERSION_VAL, MSG_ID : req_obj[MSG_ID],
                      MSG_TYPE : req_obj[MSG_TYPE], MSG_STATUS : status }
-        if data:
-            resp_obj[MSG_DATA] = data
-        syslog('Sending {} response ({})'.format(resp_obj[MSG_TYPE], resp_obj[MSG_STATUS]))
-        self.tx_msg(json.dumps(resp_obj, separators=(',',':')), tx_complete)
+            if data:
+                resp_obj[MSG_DATA] = data
+            syslog('Sending {} response ({})'.format(resp_obj[MSG_TYPE], resp_obj[MSG_STATUS]))
+            self.tx_msg(json.dumps(resp_obj, separators=(',',':')), tx_complete)
+        except Exception as e:
+            syslog("Failed to send response: '%s'" % str(e))
 
     def handle_command(self, req_obj):
         """Process a request object
@@ -185,7 +206,7 @@ class MessageManager():
         # Only continue if scanning was not cancelled
         if self.ap_scanning:
             # Schedule call on main loop to process more results
-            GObject.timeout_add(0, self.get_ap_cb)
+            gobject.timeout_add(0, self.get_ap_cb)
 
     def get_ap_cb(self):
         """Timer callback to process AP list
@@ -241,22 +262,25 @@ class MessageManager():
     def req_connect_ap(self, req_obj):
         """Handle Connect to AP message
         """
-        if self.is_provisioned():
-            self.send_response(req_obj, MSG_STATUS_ERR_INVALID)
-            return
-        # Cancel AP scan if in progress
-        self.ap_scanning = False
-        # Issue request to Network Manager
-        if 'data' in req_obj and self.net_manager.activate_connection(req_obj['data']):
-            # Config succeeded, connection in progress
-            self.send_response(req_obj, MSG_STATUS_INTERMEDIATE)
-            # Set timer task to check connectivity
-            self.activation_start_time = time.time()
-            self.activation_msg_time = self.activation_start_time
-            GObject.timeout_add(ACTIVATION_TIMER_MS, self.check_activation, req_obj)
-        else:
-            # Failed to create connection from configuration
-            self.send_response(req_obj, MSG_STATUS_ERR_INVALID)
+        try:
+            if self.is_provisioned():
+                self.send_response(req_obj, MSG_STATUS_ERR_INVALID)
+                return
+            # Cancel AP scan if in progress
+            self.ap_scanning = False
+            # Issue request to Network Manager
+            if 'data' in req_obj and self.net_manager.activate_connection(convert_dict_keys_values_to_string(req_obj['data'])):
+                # Config succeeded, connection in progress
+                self.send_response(req_obj, MSG_STATUS_INTERMEDIATE)
+                # Set timer task to check connectivity
+                self.activation_start_time = time.time()
+                self.activation_msg_time = self.activation_start_time
+                gobject.timeout_add(ACTIVATION_TIMER_MS, self.check_activation, req_obj)
+            else:
+                # Failed to create connection from configuration
+                self.send_response(req_obj, MSG_STATUS_ERR_INVALID)
+        except Exception as e:
+            syslog("Failed to connect ap: '%s'" % str(e))
 
     def send_prov_response(self, req_obj, status):
         if status == ProvManager.PROV_COMPLETE_SUCCESS:
@@ -305,14 +329,14 @@ class MessageManager():
             return
         # Issue request to Provisoning Manager
         if 'data' in req_obj:
-            status = self.prov_manager.start_provisioning(req_obj['data'])
+            status = self.prov_manager.start_provisioning(convert_dict_keys_values_to_string(req_obj['data']))
             if self.send_prov_response(req_obj, status):
                 # Success, send actualt response
                 self.send_response(req_obj, MSG_STATUS_INTERMEDIATE,
                     {'operation' : 'connect'})
                 # Set timer task to check status & sent intermediate responses
                 self.provision_msg_time = time.time()
-                GObject.timeout_add(PROVISION_TIMER_MS, self.check_provision, req_obj)
+                gobject.timeout_add(PROVISION_TIMER_MS, self.check_provision, req_obj)
             else:
                 # Failed, response already sent
                 pass
@@ -337,7 +361,7 @@ class MessageManager():
             # Handle change in state while swap is in progress
             if self.id_swap_timer:
                 # Stop current timer
-                GObject.source_remove(self.id_swap_timer)
+                gobject.source_remove(self.id_swap_timer)
                 self.id_swap_timer = None
                 if self.ext_storage_status == EXT_STORAGE_STATUS_STOPPED:
                     self.swap_status = STORAGE_STOPPED
@@ -372,7 +396,7 @@ class MessageManager():
                     self.cur_req_obj = None
                     return
                 # Set timer task to check status & send intermediate responses
-                self.id_swap_timer = GObject.timeout_add(STORAGE_SWAP_TIMER_MS,
+                self.id_swap_timer = gobject.timeout_add(STORAGE_SWAP_TIMER_MS,
                     self.storage_swap_cb)
 
     def storage_swap_cb(self):
@@ -427,6 +451,6 @@ class MessageManager():
             self.send_response(req_obj, MSG_STATUS_ERR_INVALID)
             return
         # Set timer task to check status & send intermediate responses
-        self.id_swap_timer = GObject.timeout_add(STORAGE_SWAP_TIMER_MS, self.storage_swap_cb)
+        self.id_swap_timer = gobject.timeout_add(STORAGE_SWAP_TIMER_MS, self.storage_swap_cb)
         # Send initial intermediate response
         self.send_response(req_obj, MSG_STATUS_INTERMEDIATE, {'state' : self.swap_status})

@@ -8,14 +8,8 @@ import dbus.service
 import uuid
 import array
 import time
-
-from syslog import syslog, openlog
-
-try:
-  from gi.repository import GObject
-except ImportError:
-  import gobject as GObject
 import sys
+from syslog import syslog, openlog
 
 DBUS_PROP_IFACE =     'org.freedesktop.DBus.Properties'
 GATT_MANAGER_IFACE =  'org.bluez.GattManager1'

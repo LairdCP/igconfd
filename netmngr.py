@@ -58,22 +58,22 @@ the BLE input configuration data
 def create_wireless_config(conn_name, config_data):
     try:
         wireless_config = dbus.Dictionary({
-            'connection' : dbus.Dictionary({
-                'type' : '802-11-wireless',
-                'id' : conn_name,
-                'autoconnect' : True,
-                'interface-name' : 'wlan0'
+            b'connection' : dbus.Dictionary({
+                b'type' : b'802-11-wireless',
+                b'id' : conn_name.encode(),
+                b'autoconnect' : True,
+                b'interface-name' : b'wlan0'
                 }),
-            '802-11-wireless' : dbus.Dictionary({
-                'mode' : 'infrastructure',
-                'ssid' : dbus.ByteArray(config_data['ssid']),
-                'hidden': True
+            b'802-11-wireless' : dbus.Dictionary({
+                b'mode' : b'infrastructure',
+                b'ssid' : dbus.ByteArray(config_data['ssid'].encode()),
+                b'hidden' : True
                 })
         })
         if 'psk' in config_data:
             wireless_config['802-11-wireless-security'] = dbus.Dictionary({
-                'key-mgmt' : 'wpa-psk',
-                'psk' : config_data['psk']
+                b'key-mgmt' : b'wpa-psk',
+                b'psk' : config_data['psk'].encode()
             })
         elif 'wep-key' in config_data:
             if 'wep-index' in config_data:
@@ -81,30 +81,34 @@ def create_wireless_config(conn_name, config_data):
             else:
                 wep_index = 0
             wireless_config['802-11-wireless-security'] = dbus.Dictionary({
-                'key-mgmt' : 'none',
-                'wep-key-type' : 1, # Hexadecimal key
-                'wep-key{}'.format(wep_index) : config_data['wep-key']
+                b'key-mgmt' : b'none',
+                b'wep-key-type' : 1, # Hexadecimal key
+                'wep-key{}'.format(wep_index).encode() : config_data['wep-key'].encode()
             })
         elif 'eap' in config_data:
             wireless_config['802-11-wireless-security'] = dbus.Dictionary({
-                'key-mgmt' : 'wpa-eap'
+                b'key-mgmt' : b'wpa-eap'
             })
             wireless_config['802-1x'] = dbus.Dictionary({
-                'eap' : dbus.Array([config_data['eap']]),
-                'identity' : config_data['identity'],
-                'password' : config_data['password']
+                b'eap' : dbus.Array([config_data['eap']]),
+                b'identity' : config_data['identity'].encode(),
+                b'password' : config_data['password'].encode()
             })
             if 'phase2-auth' in config_data:
                 wireless_config['802-1x']['phase2-auth'] = dbus.Array([config_data['phase2-auth']])
         if config_data.get('disable-ipv6', False):
             wireless_config['ipv6'] = dbus.Dictionary({
-                'method' : 'auto',
-                'ignore-auto-dns' : True,
-                'never-default' : True
+                b'method' : b'auto',
+                b'ignore-auto-dns' : True,
+                b'never-default' : True
             })
     except KeyError:
         syslog('Invalid input configuration')
         wireless_config = {}
+    except Exception as e:
+        syslog('Failed to create wireless config %s' % str(e))
+        wireless_config = {}
+
     return wireless_config
 
 class NetManager():
@@ -168,7 +172,7 @@ class NetManager():
             except dbus.exceptions.DBusException:
                 # Can occur as APs are removed, just move on to the next AP
                 pass
-        return ap_dict.values()
+        return list(ap_dict.values())
 
     def activate_connection(self, config_data):
         self.activation_status = self.ACTIVATION_PENDING
