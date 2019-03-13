@@ -148,14 +148,18 @@ class DeviceManager():
         device_objs = self.find_objs_by_iface(BLUEZ_DEVICE_IFACE)
         if device_objs:
             for d in device_objs:
-                syslog('Found device: {}'.format(d))
-                dev = dbus.Interface(self.bus.get_object(BLUEZ_SERVICE_NAME,
-                    d), BLUEZ_DEVICE_IFACE)
-                dev_props = dbus.Interface(self.bus.get_object(BLUEZ_SERVICE_NAME,
-                    d), DBUS_PROP_IFACE)
-                if dev_props.Get(BLUEZ_DEVICE_IFACE, 'Connected'):
-                    syslog('Disconnecting device {}'.format(dev_props.Get(BLUEZ_DEVICE_IFACE, 'Address')))
-                    dev.Disconnect()
+                try:
+                    syslog('Found device: {}'.format(d))
+                    dev = dbus.Interface(self.bus.get_object(BLUEZ_SERVICE_NAME,
+                        d), BLUEZ_DEVICE_IFACE)
+                    dev_props = dbus.Interface(self.bus.get_object(BLUEZ_SERVICE_NAME,
+                        d), DBUS_PROP_IFACE)
+                    if dev_props.Get(BLUEZ_DEVICE_IFACE, 'Connected'):
+                        syslog('Disconnecting device {}'.format(dev_props.Get(BLUEZ_DEVICE_IFACE, 'Address')))
+                        dev.Disconnect()
+                except dbus.exceptions.DBusException as e:
+                        syslog("igconfd: disconnect_devices: %s" % e)
+                        pass
 
     def init_ble_service(self):
         syslog('Configuring BLE advertisement settings.')
@@ -209,4 +213,3 @@ class DeviceManager():
         if press_type == 0 and self.msg_manager.is_provisioned():
             syslog('Config button pressed, enabling BLE service.')
             self.enable_ble_service()
-
