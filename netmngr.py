@@ -183,7 +183,10 @@ class NetManager():
     def activate_connection(self, config_data):
         self.activation_status = self.ACTIVATION_PENDING
         try:
-            wlan_mac_addr = self.get_wlan_hw_address()
+            mac = self.get_wlan_hw_address()
+            if mac:
+                wlan_mac_addr = mac.replace(':', '')
+
             conn = create_wireless_config(IG_CONN_NAME, wlan_mac_addr, config_data)
             self.new_conn_obj = self.nm_settings.AddConnection(conn)
             self.nm.ActivateConnection(self.new_conn_obj, self.wifi_dev_obj, '/')
