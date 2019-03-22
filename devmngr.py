@@ -4,6 +4,8 @@ devmngr - BLE Device Manager functionality for the BLE configuration service
 
 import dbus, dbus.service, dbus.exceptions
 import json
+import os, os.path
+import time
 import subprocess
 import leadvert
 import vspsvc
@@ -31,6 +33,15 @@ DEVICE_IFACE = 'com.lairdtech.device.DeviceInterface'
 
 BLE_STATE_ACTIVE = 1
 BLE_STATE_INACTIVE = 0
+
+BLUETOOTH_DEBUG_FS_BASE = '/sys/kernel/debug/bluetooth/hci0'
+
+LE_CONN_MIN_INTERVAL = 12 # 15 ms
+LE_CONN_MAX_INTERVAL = 24 # 30 ms
+LE_CONN_LATENCY = 0
+LE_SUPERVISION_TIMEOUT = 500 # 5000 ms
+LE_ADV_MIN_INTERVAL = 200 # 125 ms
+LE_ADV_MAX_INTERVAL = 800 # 500 ms
 
 class Application(dbus.service.Object):
     """
@@ -161,6 +172,16 @@ class DeviceManager():
                         syslog("igconfd: disconnect_devices: %s" % e)
                         pass
 
+    def write_debugfs_val(self, filename, value):
+        syslog('Writing {} to {}'.format(value, filename))
+        file_path = os.path.join(BLUETOOTH_DEBUG_FS_BASE, filename)
+        try:
+            with open(file_path, "w") as f:
+                f.write(str(value))
+                f.close()
+        except IOError as e:
+            syslog('failed to write value {} to path {}'.format(value, file_path))
+
     def init_ble_service(self):
         syslog('Configuring BLE advertisement settings.')
         # Need to use BlueZ util to set these, they are not
@@ -171,6 +192,16 @@ class DeviceManager():
         subprocess.call(['btmgmt', 'bredr', 'off'])
         subprocess.call(['btmgmt', 'io-cap', '3'])
         subprocess.call(['btmgmt', 'bondable', 'off'])
+        # Configure kernel BLE settings used in slave mode, that are only
+        # available through debugfs
+        self.write_debugfs_val('conn_max_interval', LE_CONN_MAX_INTERVAL)
+        self.write_debugfs_val('conn_latency', LE_CONN_LATENCY)
+        self.write_debugfs_val('supervision_timeout', LE_SUPERVISION_TIMEOUT)
+        self.write_debugfs_val('adv_min_interval', LE_ADV_MIN_INTERVAL)
+        # These settings are validated against previous writes, delay a bit
+        time.sleep(1.0)
+        self.write_debugfs_val('conn_min_interval', LE_CONN_MIN_INTERVAL)
+        self.write_debugfs_val('adv_max_interval', LE_ADV_MAX_INTERVAL)
         syslog('Registering GATT application...')
         self.gatt_manager.RegisterApplication(self.vsp_app.get_path(), {},
             reply_handler=self.register_app_cb,
