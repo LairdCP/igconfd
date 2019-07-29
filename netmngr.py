@@ -6,6 +6,14 @@ import dbus, dbus.exceptions
 from syslog import syslog
 import time
 
+import sys
+PYTHON3 = sys.version_info >= (3, 0)
+if PYTHON3:
+    from gi.repository import GObject as gobject
+else:
+    import gobject
+
+
 ''' Network Manager Device Connection States '''
 NM_DEVICE_STATE_UNKNOWN = 0
 NM_DEVICE_STATE_UNMANAGED = 10
@@ -50,7 +58,14 @@ NM_CONNECTION_ACTIVE_IFACE = 'org.freedesktop.NetworkManager.Connection.Active'
 NM_AP_IFACE = 'org.freedesktop.NetworkManager.AccessPoint'
 
 IG_CONN_NAME = 'ig-connection'
-PAC_FILE = '/var/lib/private/autoP.pac'
+PAC_FILE = b'/var/lib/private/autoP.pac'
+
+
+GET_AP_INTERMEDIATE_TIMEOUT = 2
+ACTIVATION_INTERMEDIATE_TIMEOUT = 5
+ACTIVATION_FAILURE_TIMEOUT = 60
+ACTIVATION_TIMER_MS = 500
+
 """
 Create a NetworkManager wireless configuration from
 the BLE input configuration data
@@ -91,14 +106,14 @@ def create_wireless_config(conn_name, wlan_mac_addr, config_data):
             })
             wireless_config['802-1x'] = dbus.Dictionary({
                 b'eap' : dbus.Array([config_data['eap']]),
-                b'identity' : config_data['identity'],
-                b'password' : config_data['password']})
+                b'identity' : config_data['identity'].encode(),
+                b'password' : config_data['password'].encode()})
 
             if 'fast' == config_data['eap']:
                 wireless_config['802-1x']['anonymous-identity'] = 'FAST-'+wlan_mac_addr
                 wireless_config['802-1x']['phase1-fast-provisioning'] = 3
                 wireless_config['802-1x']['pac-file'] = PAC_FILE
-                wireless_config['802-1x']['phase2-auth'] = dbus.Array(['gtc', 'mschapv2'])
+                wireless_config['802-1x']['phase2-auth'] = dbus.Array([b'gtc', b'mschapv2'])
             elif 'phase2-auth' in config_data:
                 wireless_config['802-1x']['phase2-auth'] = dbus.Array([config_data['phase2-auth']])
 
@@ -120,27 +135,38 @@ def create_wireless_config(conn_name, wlan_mac_addr, config_data):
 class NetManager():
     """Activation status codes
     """
+
     ACTIVATION_SUCCESS = 0
     ACTIVATION_PENDING = 1
     ACTIVATION_FAILED_AUTH = -1
     ACTIVATION_FAILED_NETWORK = -2
+    ACTIVATION_NO_CONN = -5
 
-    def __init__(self):
-        bus = dbus.SystemBus()
-        self.nm = dbus.Interface(bus.get_object(NM_IFACE, NM_OBJ), NM_IFACE)
-        self.nm_props = dbus.Interface(bus.get_object(NM_IFACE, NM_OBJ), DBUS_PROP_IFACE)
-        self.nm_settings = dbus.Interface(bus.get_object(NM_IFACE, NM_SETTINGS_OBJ), NM_SETTINGS_IFACE)
-        self.wifi_dev_obj = bus.get_object(NM_IFACE, self.nm.GetDeviceByIpIface("wlan0"))
-        self.wifi_dev = dbus.Interface(self.wifi_dev_obj, NM_WIFI_DEVICE_IFACE)
-        self.wifi_dev_props = dbus.Interface(self.wifi_dev_obj, DBUS_PROP_IFACE)
-        self.ap_objs = None
-        self.new_conn_obj = None
-        self.connectivity = self.nm_props.Get(NM_IFACE, 'Connectivity')
-        self.activated = False
-        self.activation_status = None
-        self.wifi_dev_props.connect_to_signal('PropertiesChanged', self.wifi_dev_props_changed)
-        self.nm_props.connect_to_signal('PropertiesChanged', self.nm_props_changed)
+    AP_SCANNING_SUCCESS = 0
+    AP_SCANNING = 1
 
+    def __init__(self, response_cb):
+        try:
+            bus = dbus.SystemBus()
+            self.nm = dbus.Interface(bus.get_object(NM_IFACE, NM_OBJ), NM_IFACE)
+            self.nm_props = dbus.Interface(bus.get_object(NM_IFACE, NM_OBJ), DBUS_PROP_IFACE)
+            self.nm_settings = dbus.Interface(bus.get_object(NM_IFACE, NM_SETTINGS_OBJ), NM_SETTINGS_IFACE)
+            self.wifi_dev_obj = bus.get_object(NM_IFACE, self.nm.GetDeviceByIpIface("wlan0"))
+            self.wifi_dev = dbus.Interface(self.wifi_dev_obj, NM_WIFI_DEVICE_IFACE)
+            self.wifi_dev_props = dbus.Interface(self.wifi_dev_obj, DBUS_PROP_IFACE)
+            self.ap_objs = None
+            self.new_conn_obj = None
+            self.connectivity = self.nm_props.Get(NM_IFACE, 'Connectivity')
+            self.activated = False
+            self.activation_status = None
+            self.wifi_dev_props.connect_to_signal('PropertiesChanged', self.wifi_dev_props_changed)
+            self.nm_props.connect_to_signal('PropertiesChanged', self.nm_props_changed)
+            self.response_cb = response_cb
+            self.api_enabled = True
+        except dbus.DBusException:
+            self.api_enabled = False   
+    
+    
     def get_wlan_hw_address(self):
         return str(self.wifi_dev_props.Get(NM_WIFI_DEVICE_IFACE, 'HwAddress'))
 
@@ -232,3 +258,96 @@ class NetManager():
             self.new_conn_obj = None
             self.activated = False
             self.activation_status = None
+
+    def stop_scanning(self):
+        self.ap_scanning = False
+
+    """
+    NOTE: For some reason, using the NetworkManager API to query each
+          AP object is very slow, so we process the AP list
+          in batches and send them to the client.  Also, reading the APs
+          causes the Tx on the BLE GATT characteristic to slow down,
+          which leads to long delays (timeouts) for the client.  So,
+          the code below implements a callback when the BLE Tx is
+          complete.  Thus we only process the AP list after the last
+          message was sent, then send the message once we've processed
+          the AP list; this ends up being more responsive to the client.
+    """
+    def ap_scan_tx_complete(self):
+        """Callback for AP scan list TX complete
+        """
+        # Only continue if scanning was not cancelled
+        if self.ap_scanning:
+            # Schedule call on main loop to process more results
+            gobject.timeout_add(0, self.get_ap_cb)
+
+    def get_ap_cb(self):
+        """Timer callback to process AP list
+        """
+        aplist = self.get_access_points(GET_AP_INTERMEDIATE_TIMEOUT, not self.ap_first_scan)
+        self.ap_first_scan = False
+        # Only continue if scanning was not cancelled
+        if self.ap_scanning:
+            if aplist and len(aplist) > 0:
+                # Send response with TX complete callback to get more
+                syslog('Sending intermediate list of {} APs.'.format(len(aplist)))
+                self.response_cb(self.AP_SCANNING, data=aplist, tx_complete=self.ap_scan_tx_complete)
+            else:
+                # Send final response
+                syslog('Sending final AP response')
+                self.response_cb(self.AP_SCANNING_SUCCESS)
+                self.ap_scanning = False
+                return False
+
+    def req_get_access_points(self):
+        """Handle Get Access Points request
+        """
+        self.ap_first_scan = True
+        self.ap_scanning = True
+        # Send response indicating request in progress, with TX complete callback to scan
+        self.response_cb(self.AP_SCANNING, tx_complete=self.ap_scan_tx_complete)
+
+    def check_activation(self):
+        status = self.get_activation_status()
+        if status == self.ACTIVATION_SUCCESS:
+            self.response_cb(status)
+            return False # Exit timer
+        elif status == self.ACTIVATION_FAILED_AUTH:
+            self.response_cb(status)
+            self.activation_cleanup()
+            return False # Exit timer
+        elif status == self.ACTIVATION_FAILED_NETWORK:
+            self.response_cb(status)
+            self.activation_cleanup()
+            return False # Exit timer
+        if time.time() - self.activation_start_time > ACTIVATION_FAILURE_TIMEOUT:
+            # Failed to activate before timeout, send failure and exit timer
+            self.response_cb(self.ACTIVATION_NO_CONN)
+            self.activation_cleanup()
+            return False
+        elif time.time() - self.activation_msg_time > ACTIVATION_INTERMEDIATE_TIMEOUT:
+            # Still waiting for activation, send intermediate response
+            self.response_cb(self.ACTIVATION_PENDING)
+            self.activation_msg_time = time.time()
+
+        return True
+
+    def req_connect_ap(self, data):
+        """Handle Connect to AP message
+        """
+        try:
+            # Cancel AP scan if in progress
+            self.ap_scanning = False
+            # Issue request to Network Manager
+            if self.activate_connection(data):
+                # Config succeeded, connection in progress
+                self.response_cb(self.ACTIVATION_PENDING)
+                # Set timer task to check connectivity
+                self.activation_start_time = time.time()
+                self.activation_msg_time = self.activation_start_time
+                gobject.timeout_add(ACTIVATION_TIMER_MS, self.check_activation)
+            else:
+                # Failed to create connection from configuration
+                self.response_cb(self.ACTIVATION_NO_CONN)
+        except Exception as e:
+            syslog("Failed to connect ap: '%s'" % str(e))
