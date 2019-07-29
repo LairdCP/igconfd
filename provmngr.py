@@ -2,16 +2,28 @@
 provmngr - Provisioning functionality for the BLE configuration service
 """
 
+import time
 import dbus, dbus.exceptions
 from syslog import syslog
+
+import sys
+PYTHON3 = sys.version_info >= (3, 0)
+if PYTHON3:
+    from gi.repository import GObject as gobject
+else:
+    import gobject
 
 PROV_SVC = 'com.lairdtech.IG.ProvService'
 PROV_IFACE = 'com.lairdtech.IG.ProvInterface'
 PROV_OBJ = '/com/lairdtech/IG/ProvService'
 DBUS_PROP_IFACE = 'org.freedesktop.DBus.Properties'
 
+PROVISION_INTERMEDIATE_TIMEOUT = 2
+PROVISION_TIMER_MS = 500
+
 class ProvManager():
-    """Provisioning States - these must match the IG Provisioning Service
+    """
+    Provisioning States - these must match the IG Provisioning Service
     """
     PROV_COMPLETE_SUCCESS = 0
     PROV_UNPROVISIONED = 1
@@ -23,12 +35,33 @@ class ProvManager():
     PROV_FAILED_TIMEOUT = -4
     PROV_FAILED_NOT_FOUND = -5
 
-    def __init__(self):
-        bus = dbus.SystemBus()
-        self.prov = dbus.Interface(bus.get_object(PROV_SVC, PROV_OBJ), PROV_IFACE)
-        self.prov_props = dbus.Interface(bus.get_object(PROV_SVC, PROV_OBJ), DBUS_PROP_IFACE)
-        self.prov.connect_to_signal('StateChanged', self.prov_state_changed)
-        self._prov_state = self.prov_props.Get(PROV_IFACE, 'Status')
+
+    def __init__(self, response_cb):
+        try:
+            bus = dbus.SystemBus()
+            self.prov = dbus.Interface(bus.get_object(PROV_SVC, PROV_OBJ), PROV_IFACE)
+            self.prov_props = dbus.Interface(bus.get_object(PROV_SVC, PROV_OBJ), DBUS_PROP_IFACE)
+            self.prov.connect_to_signal('StateChanged', self.prov_state_changed)
+            self._prov_state = self.prov_props.Get(PROV_IFACE, 'Status')
+            self.response_cb = response_cb
+
+            # Disabled the API if provisioning is complete or there is no Provisioning Service
+            if self._prov_state == self.PROV_COMPLETE_SUCCESS:
+                self.api_enabled = False
+            else:
+                self.api_enabled = True
+        except dbus.DBusException:
+            self.api_enabled = False          
+   
+    def is_provisioned(self):
+        if self._prov_state == self.PROV_COMPLETE_SUCCESS:
+            return True
+        else:
+            return False
+
+    
+    def disable_api(self):
+        self.api_enabled = False
 
     def prov_state_changed(self, state):
         syslog('Provisioning state changed: {}'.format(state))
@@ -37,12 +70,47 @@ class ProvManager():
     def get_prov_state(self):
         return self._prov_state
 
+    def is_provisioning(self):
+        if self._prov_state == self.PROV_UNPROVISIONED or self.PROV_INPROGRESS_DOWNLOADING or self.PROV_INPROGRESS_APPLYING:
+            return True
+        else:
+            return False
+
+    def check_provision(self):
+        ret = self.is_provisioning()
+        if ret and time.time() - self.provision_msg_time > PROVISION_INTERMEDIATE_TIMEOUT:
+            # Still waiting for completion, send intermediate response
+            self.provision_msg_time = time.time()
+            if self._prov_state == self.PROV_INPROGRESS_DOWNLOADING:
+                data = {'operation' : 'download'}
+            elif self._prov_state == self.PROV_INPROGRESS_APPLYING:
+                data = {'operation' : 'apply'}
+            else:
+                data = None
+
+            self.response_cb(self._prov_state, data)
+        elif not ret:
+            self.response_cb(self._prov_state)
+
+        return ret  
+
     def start_provisioning(self, prov_data):
+
         syslog('Starting provisioning.')
         try:
-            return self.prov.StartProvisioning(prov_data['url'].encode(),
+            status = self.prov.StartProvisioning(prov_data['url'].encode(),
                 { 'username' : prov_data['username'].encode(),
                   'password' : prov_data['password'].encode() } )
+            self.response_cb(status)
         except KeyError:
             syslog('Invalid provisioning request data.')
-            return self.PROV_FAILED_INVALID
+            self.response_cb(self.PROV_FAILED_INVALID)
+
+        if self.is_provisioning():
+            # Success, send actualt response
+            self.response_cb(self.PROV_UNPROVISIONED, {'operation' : 'connect'})
+            # Set timer task to check status & sent intermediate responses
+            self.provision_msg_time = time.time()
+            gobject.timeout_add(PROVISION_TIMER_MS, self.check_provision)
+        else:
+            self.response_cb(self.PROV_FAILED_CONNECT)

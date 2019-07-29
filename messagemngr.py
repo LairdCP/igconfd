@@ -1,8 +1,11 @@
 import dbus, dbus.service, dbus.exceptions
 import json
 import time
+
 from netmngr import NetManager
 from provmngr import ProvManager
+from devmngr import DeviceManager
+
 from syslog import syslog
 
 import sys
@@ -38,6 +41,7 @@ MSG_STATUS_ERR_AUTH = -3
 MSG_STATUS_ERR_NOTFOUND = -4
 MSG_STATUS_ERR_NOCONN = -5
 MSG_STATUS_ERR_DEVICE = -6
+MSG_STATUS_API_DISABLED = -7
 
 EXT_STORAGE_STATUS_FULL = -1
 EXT_STORAGE_STATUS_FAILED = -2
@@ -53,11 +57,6 @@ STORAGE_EJECTING = 'ejecting'
 STORAGE_STOPPED = 'stopped'
 STORAGE_INSERTING = 'inserting'
 STORAGE_FORMATTING = 'formatting'
-
-GET_AP_INTERMEDIATE_TIMEOUT = 2
-ACTIVATION_INTERMEDIATE_TIMEOUT = 5
-ACTIVATION_FAILURE_TIMEOUT = 60
-ACTIVATION_TIMER_MS = 500
 
 PROVISION_INTERMEDIATE_TIMEOUT = 2
 PROVISION_TIMER_MS = 500
@@ -87,28 +86,13 @@ def convert_dict_keys_values_to_string(data):
 
 
 class MessageManager():
-    def __init__(self, net_manager, shutdown_cb):
-        self.net_manager = net_manager
-        self.prov_manager = ProvManager()
-        self.shutdown_cb = shutdown_cb
-        self.activation_start_time = 0
-        self.activation_msg_time = 0
-        self.provision_msg_time = 0
-        self.ap_first_scan = False
-        self.cur_req_obj = None
-        self.ap_scanning = False
-        self.id_swap_timer = None
-        self.swap_status = None
-        self.bus = dbus.SystemBus()
-        self.device_props = dbus.Interface(self.bus.get_object(DEVICE_SVC_NAME,
-            DEVICE_SVC_PATH), DBUS_PROP_IFACE)
-        self.device_props.connect_to_signal('PropertiesChanged', self.dev_props_changed)
-        self.device_svc = dbus.Interface(self.bus.get_object(DEVICE_SVC_NAME,
-            DEVICE_SVC_PATH), DEVICE_PUB_IFACE)
-        self.ext_storage_status = self.device_props.Get(DEVICE_PUB_IFACE, EXT_STORAGE_STATUS_PROP)
+    def __init__(self, shutdown_cb):
+        self.prov_manager = ProvManager(self.send_prov_response)
+        self.dev_manager = DeviceManager(self.send_response)
+        self.net_manager = NetManager(self.send_net_response)
 
-    def is_provisioned(self):
-        return self.prov_manager.get_prov_state() == ProvManager.PROV_COMPLETE_SUCCESS
+        self.shutdown_cb = shutdown_cb
+        self.cur_req_obj = None
 
     def start(self, tx_msg):
         self.tx_msg = tx_msg
@@ -117,13 +101,13 @@ class MessageManager():
         """Schedule request handler to run on main loop
         """
         # Cancel any current AP scan
-        self.ap_scanning = False
+        self.net_manager.stop_scanning()
         gobject.timeout_add(0, self.handle_command, req_obj)
 
     def client_disconnect(self):
         # Reset message state on client disconnect
         syslog('BLE client disconnected, resetting state.')
-        self.ap_scanning = False
+        self.net_manager.stop_scanning()
 
     def send_response(self, req_obj, status, data=None, tx_complete=None):
         """Send a response message based on the request, with optional data
@@ -152,18 +136,18 @@ class MessageManager():
                 self.send_response(req_obj, MSG_STATUS_SUCCESS)
             elif msg_type == MSG_ID_GET_DEVICE_ID:
                 self.req_get_device_id(req_obj)
-            elif msg_type == MSG_ID_GET_APS:
-                self.req_get_access_points(req_obj)
-            elif msg_type == MSG_ID_CONNECT_AP:
-                self.req_connect_ap(req_obj)
-            elif msg_type == MSG_ID_PROVISION_URL:
-                self.req_provision_url(req_obj)
             elif msg_type == MSG_ID_GET_DEVICE_CAPS:
                 self.req_get_device_caps(req_obj)
+            elif msg_type == MSG_ID_GET_APS:
+                self.handle_net_manager_request(MSG_ID_GET_APS, req_obj)
+            elif msg_type == MSG_ID_CONNECT_AP:
+                self.handle_net_manager_request(MSG_ID_CONNECT_AP, req_obj)
+            elif msg_type == MSG_ID_PROVISION_URL:
+                self.handle_prov_manager_request(MSG_ID_PROVISION_URL, req_obj)
             elif msg_type == MSG_ID_GET_STORAGE_INFO:
-                self.req_get_storage_info(req_obj)
+                self.handle_dev_manager_request(MSG_ID_GET_STORAGE_INFO, req_obj)
             elif msg_type == MSG_ID_EXT_STORAGE_SWAP:
-                self.req_ext_storage_swap(req_obj)
+                self.handle_dev_manager_request(MSG_ID_EXT_STORAGE_SWAP, req_obj)
             else:
                 self.send_response(req_obj, MSG_STATUS_ERR_INVALID)
         except KeyError:
@@ -185,272 +169,97 @@ class MessageManager():
     def req_get_device_caps(self, req_obj):
         """Handle Get Device Capabilities Request
         """
-        cap_data = { 'isProvisioned' : self.is_provisioned(),
-            'deviceCaps' : ['getStorageInfo', 'extStorageSwap'] }
+        cap_data = {}
+
+        if self.prov_manager.api_enabled:
+            cap_data['isProvisioned'] = str(self.prov_manager.is_provisioned())
+  
+        if self.dev_manager.api_enabled:
+            cap_data['deviceCaps'] = ['getStorageInfo', 'extStorageSwap']
+
         self.send_response(req_obj, MSG_STATUS_SUCCESS, data=cap_data)
 
     """
-    NOTE: For some reason, using the NetworkManager API to query each
-          AP object is very slow, so we process the AP list
-          in batches and send them to the client.  Also, reading the APs
-          causes the Tx on the BLE GATT characteristic to slow down,
-          which leads to long delays (timeouts) for the client.  So,
-          the code below implements a callback when the BLE Tx is
-          complete.  Thus we only process the AP list after the last
-          message was sent, then send the message once we've processed
-          the AP list; this ends up being more responsive to the client.
+    Response callbacks for the various service managers
     """
-    def ap_scan_tx_complete(self):
-        """Callback for AP scan list TX complete
-        """
-        # Only continue if scanning was not cancelled
-        if self.ap_scanning:
-            # Schedule call on main loop to process more results
-            gobject.timeout_add(0, self.get_ap_cb)
-
-    def get_ap_cb(self):
-        """Timer callback to process AP list
-        """
-        aplist = self.net_manager.get_access_points(GET_AP_INTERMEDIATE_TIMEOUT, not self.ap_first_scan)
-        self.ap_first_scan = False
-        # Only continue if scanning was not cancelled
-        if self.ap_scanning:
-            if aplist and len(aplist) > 0:
-                # Send response with TX complete callback to get more
-                syslog('Sending intermediate list of {} APs.'.format(len(aplist)))
-                self.send_response(self.cur_req_obj, MSG_STATUS_INTERMEDIATE, data=aplist, tx_complete=self.ap_scan_tx_complete)
-            else:
-                # Send final response
-                syslog('Sending final AP response')
-                self.send_response(self.cur_req_obj, MSG_STATUS_SUCCESS)
-                self.cur_req_obj = None
-                self.ap_scanning = False
-
-    def req_get_access_points(self, req_obj):
-        """Handle Get Access Points request
-        """
-        self.cur_req_obj = req_obj
-        self.ap_first_scan = True
-        self.ap_scanning = True
-        # Send response indicating request in progress, with TX complete callback to scan
-        self.send_response(req_obj, MSG_STATUS_INTERMEDIATE, tx_complete=self.ap_scan_tx_complete)
-
-    def check_activation(self, req_obj):
-        status = self.net_manager.get_activation_status()
-        if status == NetManager.ACTIVATION_SUCCESS:
-            self.send_response(req_obj, MSG_STATUS_SUCCESS)
-            return False # Exit timer
+    def send_net_response(self, status, data=None, tx_complete=None):
+        if status == NetManager.ACTIVATION_SUCCESS or NetManager.AP_SCANNING_SUCCESS:
+            self.send_response(self.cur_net_req_obj, MSG_STATUS_SUCCESS)
         elif status == NetManager.ACTIVATION_FAILED_AUTH:
-            self.send_response(req_obj, MSG_STATUS_ERR_AUTH)
-            self.net_manager.activation_cleanup()
-            return False # Exit timer
+            self.send_response(self.cur_net_req_obj, MSG_STATUS_ERR_AUTH)
         elif status == NetManager.ACTIVATION_FAILED_NETWORK:
-            self.send_response(req_obj, MSG_STATUS_ERR_NOCONN)
+            self.send_response(self.cur_net_req_obj, MSG_STATUS_ERR_NOCONN)
+        elif status == NetManager.ACTIVATION_NO_CONN:
+            self.send_response(self.cur_net_req_obj, MSG_STATUS_ERR_NOCONN)
             self.net_manager.activation_cleanup()
-            return False # Exit timer
-        if time.time() - self.activation_start_time > ACTIVATION_FAILURE_TIMEOUT:
-            # Failed to activate before timeout, send failure and exit timer
-            self.send_response(req_obj, MSG_STATUS_ERR_NOCONN)
-            self.net_manager.activation_cleanup()
-            return False
-        elif time.time() - self.activation_msg_time > ACTIVATION_INTERMEDIATE_TIMEOUT:
-            # Still waiting for activation, send intermediate response
-            self.send_response(req_obj, MSG_STATUS_INTERMEDIATE)
-            self.activation_msg_time = time.time()
-        return True
+        elif status == NetManager.ACTIVATION_PENDING or NetManager.AP_SCANNING:
+            self.send_response(self.cur_net_req_obj, MSG_STATUS_INTERMEDIATE, data, tx_complete)
 
-    def req_connect_ap(self, req_obj):
-        """Handle Connect to AP message
-        """
-        try:
-            if self.is_provisioned():
-                self.send_response(req_obj, MSG_STATUS_ERR_INVALID)
-                return
-            # Cancel AP scan if in progress
-            self.ap_scanning = False
-            # Issue request to Network Manager
-            if 'data' in req_obj and self.net_manager.activate_connection(convert_dict_keys_values_to_string(req_obj['data'])):
-                # Config succeeded, connection in progress
-                self.send_response(req_obj, MSG_STATUS_INTERMEDIATE)
-                # Set timer task to check connectivity
-                self.activation_start_time = time.time()
-                self.activation_msg_time = self.activation_start_time
-                gobject.timeout_add(ACTIVATION_TIMER_MS, self.check_activation, req_obj)
-            else:
-                # Failed to create connection from configuration
-                self.send_response(req_obj, MSG_STATUS_ERR_INVALID)
-        except Exception as e:
-            syslog("Failed to connect ap: '%s'" % str(e))
-
-    def send_prov_response(self, req_obj, status):
+    def send_prov_response(self, status, data=None):
         if status == ProvManager.PROV_COMPLETE_SUCCESS:
-            self.send_response(req_obj, MSG_STATUS_SUCCESS)
-            # Shutdown provisioning service
+            # Shutdown provisioning service and disabled the api
+            self.send_response(self.cur_prov_req_obj, MSG_STATUS_SUCCESS)
+            self.prov_manager.disable_api()
             self.shutdown_cb()
-            return False
         elif status == ProvManager.PROV_FAILED_AUTH:
-            self.send_response(req_obj, MSG_STATUS_ERR_AUTH)
-            return False
+            self.send_response(self.cur_prov_req_obj, MSG_STATUS_ERR_AUTH)
         elif status == ProvManager.PROV_FAILED_TIMEOUT:
-            self.send_response(req_obj, MSG_STATUS_ERR_TIMEOUT)
-            return False
+            self.send_response(self.cur_prov_req_obj, MSG_STATUS_ERR_TIMEOUT)
         elif status == ProvManager.PROV_FAILED_CONNECT:
-            self.send_response(req_obj, MSG_STATUS_ERR_NOTFOUND)
-            return False
+            self.send_response(self.cur_prov_req_obj, MSG_STATUS_ERR_NOTFOUND)
         elif status < 0: # All other failures
-            self.send_response(req_obj, MSG_STATUS_ERR_NOCONN)
-            return False
+            self.send_response(self.cur_prov_req_obj, MSG_STATUS_ERR_NOCONN)
         else:
-            # Intermediate status, don't send
-            return True
+            self.send_response(self.cur_prov_req_obj, MSG_STATUS_INTERMEDIATE, data)
 
-    def check_provision(self, req_obj):
-        # Cancel AP scan if in progress
-        self.ap_scanning = False
-        status = self.prov_manager.get_prov_state()
-        ret = self.send_prov_response(req_obj, status)
-        if ret and time.time() - self.provision_msg_time > PROVISION_INTERMEDIATE_TIMEOUT:
-            # Still waiting for completion, send intermediate response
-            self.provision_msg_time = time.time()
-            if status == ProvManager.PROV_INPROGRESS_DOWNLOADING:
-                data = {'operation' : 'download'}
-            elif status == ProvManager.PROV_INPROGRESS_APPLYING:
-                data = {'operation' : 'apply'}
-            else:
-                data = None
-            self.send_response(req_obj, MSG_STATUS_INTERMEDIATE, data)
-        return ret
+    def send_dev_reponse(self, status, data=None):
+        self.send_response(self.cur_req_obj, status, data)
+        self.cur_req_obj = None
 
-    def req_provision_url(self, req_obj):
-        """Handle Provision message
-        """
-        if self.is_provisioned():
-            self.send_response(req_obj, MSG_STATUS_ERR_INVALID)
+    """
+    Request handlers for the various service managers
+    """
+    def handle_net_manager_request(self, msg_type, req_obj):
+        self.cur_net_req_obj = req_obj
+
+        if self.prov_manager.api_enabled and self.prov_manager.is_provisioned():
+            self.send_prov_response(self.cur_net_req_obj, MSG_STATUS_ERR_INVALID)
             return
-        # Issue request to Provisoning Manager
-        if 'data' in req_obj:
-            status = self.prov_manager.start_provisioning(convert_dict_keys_values_to_string(req_obj['data']))
-            if self.send_prov_response(req_obj, status):
-                # Success, send actualt response
-                self.send_response(req_obj, MSG_STATUS_INTERMEDIATE,
-                    {'operation' : 'connect'})
-                # Set timer task to check status & sent intermediate responses
-                self.provision_msg_time = time.time()
-                gobject.timeout_add(PROVISION_TIMER_MS, self.check_provision, req_obj)
-            else:
-                # Failed, response already sent
-                pass
+
+        if msg_type == MSG_ID_GET_APS:
+             self.net_manager.req_get_access_points()
+        elif msg_type == MSG_ID_CONNECT_AP and 'data' in req_obj:
+             self.net_manager.req_connect_ap(convert_dict_keys_values_to_string(self.cur_net_req_obj['data']))
+  
+
+    def handle_prov_manager_request(self, msg_type, req_obj):
+
+        if self.net_manager.api_enabled:
+            self.net_manager.stop_scanning()
+            
+        if self.prov_manager.api_enabled:
+            self.cur_prov_req_obj = req_obj
+            
+            if msg_type == MSG_ID_PROVISION_URL and 'data' in req_obj:
+                self.prov_manager.start_provisioning(convert_dict_keys_values_to_string(req_obj['data']))
+
         else:
-            self.send_response(req_obj, MSG_STATUS_ERR_INVALID)
+            self.send_prov_response(self.cur_prov_req_obj, MSG_STATUS_ERR_INVALID)
 
-    def req_get_storage_info(self, req_obj):
-        """Handle Get Storage Info request
-        """
-        props = self.device_props.GetAll(DEVICE_PUB_IFACE)
-        storage_data = { 'intBytesTotal' : props['IntStorageTotalBytes'],
-            'intBytesFree' : props['IntStorageFreeBytes'],
-            'extBytesTotal' : props['ExtStorageTotalBytes'],
-            'extBytesFree' : props['ExtStorageFreeBytes'],
-            'canSwap' : props['ExtStorageStatus'] != EXT_STORAGE_STATUS_NOTPRESENT }
-        self.send_response(req_obj, MSG_STATUS_SUCCESS, data=storage_data)
+    def handle_dev_manager_request(self, msg_type, req_obj):  
+        if self.dev_manager.api_enabled:
+            self.cur_dev_req_obj = req_obj
 
-    def dev_props_changed(self, iface, props_changed, props_invalidated):
-        if props_changed and EXT_STORAGE_STATUS_PROP in props_changed:
-            self.ext_storage_status = props_changed[EXT_STORAGE_STATUS_PROP]
-            syslog('External storage state changed: {}'.format(self.ext_storage_status))
-            # Handle change in state while swap is in progress
-            if self.id_swap_timer:
-                # Stop current timer
-                gobject.source_remove(self.id_swap_timer)
-                self.id_swap_timer = None
-                if self.ext_storage_status == EXT_STORAGE_STATUS_STOPPED:
-                    self.swap_status = STORAGE_STOPPED
-                elif self.ext_storage_status == EXT_STORAGE_STATUS_READY:
-                    # Card is now in use, send final result
-                    self.send_response(self.cur_req_obj, MSG_STATUS_SUCCESS)
-                    self.cur_req_obj = None
-                    return
-                elif self.ext_storage_status == EXT_STORAGE_STATUS_NOTPRESENT:
-                    # Card removed, make sure we were expecting this
-                    if self.swap_status != STORAGE_STOPPED:
-                        self.send_response(self.cur_req_obj, MSG_STATUS_ERR_INVALID)
-                        self.cur_req_obj = None
-                        return
-                    self.swap_status = STORAGE_INSERTING
-                elif self.ext_storage_status == EXT_STORAGE_STATUS_UNFORMATTED:
-                    # Unformatted card inserted
-                    syslog('Formatting external storage')
-                    self.swap_status = STORAGE_FORMATTING
-                    if self.device_svc.ExtStorageFormat() != 0:
-                        syslog('Failed request to format external storage.')
-                        self.send_response(self.cur_req_obj, MSG_STATUS_ERR_DEVICE)
-                        self.cur_req_obj = None
-                        return
-                elif self.ext_storage_status == EXT_STORAGE_STATUS_STOPPING:
-                    self.swap_status = STORAGE_EJECTING
-                elif self.ext_storage_status == EXT_STORAGE_STATUS_FORMATTING:
-                    self.swap_status = STORAGE_FORMATTING
-                else:
-                    # All other states are failures
-                    self.send_response(self.cur_req_obj, MSG_STATUS_ERR_DEVICE)
-                    self.cur_req_obj = None
-                    return
-                # Set timer task to check status & send intermediate responses
-                self.id_swap_timer = gobject.timeout_add(STORAGE_SWAP_TIMER_MS,
-                    self.storage_swap_cb)
-
-    def storage_swap_cb(self):
-        # Send intermediate response with current swap state
-        syslog('Sending intermediate swap status: {}'.format(self.swap_status))
-        self.send_response(self.cur_req_obj, MSG_STATUS_INTERMEDIATE, {'state' : self.swap_status})
-        return True # Continue timer
-
-    def req_ext_storage_swap(self, req_obj):
-        """Handle Storage Swap request
-        """
-        # Check that we're not already performing a swap
-        if self.id_swap_timer:
-            self.send_response(req_obj, MSG_STATUS_ERR_INVALID)
-            return
-        self.cur_req_obj = req_obj
-        # Check current external storage state
-        if (self.ext_storage_status == EXT_STORAGE_STATUS_FULL or
-            self.ext_storage_status == EXT_STORAGE_STATUS_FAILED or
-            self.ext_storage_status == EXT_STORAGE_STATUS_STOP_FAILED or
-            self.ext_storage_status == EXT_STORAGE_STATUS_READY):
-            # Card is present, request stop
-            syslog('Ejecting external storage')
-            self.swap_status = STORAGE_EJECTING
-            if self.device_svc.ExtStorageStop() != 0:
-                syslog('Failed request to stop external storage.')
-                self.send_response(req_obj, MSG_STATUS_ERR_DEVICE)
-                return
-        elif self.ext_storage_status == EXT_STORAGE_STATUS_STOPPING:
-            # Already stopping
-            self.swap_status = STORAGE_EJECTING
-        elif self.ext_storage_status == EXT_STORAGE_STATUS_UNFORMATTED:
-            # Unformatted card is present, start formatting
-            syslog('Formatting external storage')
-            self.swap_status = STORAGE_FORMATTING
-            if self.device_svc.ExtStorageFormat() != 0:
-                syslog('Failed request to format external storage.')
-                self.send_response(req_obj, MSG_STATUS_ERR_DEVICE)
-                return
-        elif self.ext_storage_status == EXT_STORAGE_STATUS_FORMATTING:
-            # Already formatting
-            self.swap_status = STORAGE_FORMATTING
-        elif self.ext_storage_status == EXT_STORAGE_STATUS_STOPPED:
-            # Already stopped
-            self.swap_status = STORAGE_STOPPED
-        elif self.ext_storage_status == EXT_STORAGE_STATUS_NOTPRESENT:
-            # Card already removed
-            self.swap_status = STORAGE_INSERTING
+            if msg_type == MSG_ID_GET_STORAGE_INFO:
+                storage_data = self.dev_manager.get_storage_data()
+                self.send_response(self.cur_dev_req_obj, MSG_STATUS_SUCCESS, data=storage_data)
+            elif msg_type == MSG_ID_EXT_STORAGE_SWAP:
+                status, storage_data = self.dev_manager.do_storage_swap()
+                self.send_response(self.cur_dev_req_obj, status, data=storage_data)
         else:
-            # Unknown state?
-            syslog('Unknown storage state: {}'.format(self.ext_storage_status))
-            self.send_response(req_obj, MSG_STATUS_ERR_INVALID)
-            return
-        # Set timer task to check status & send intermediate responses
-        self.id_swap_timer = gobject.timeout_add(STORAGE_SWAP_TIMER_MS, self.storage_swap_cb)
-        # Send initial intermediate response
-        self.send_response(req_obj, MSG_STATUS_INTERMEDIATE, {'state' : self.swap_status})
+            self.send_response(self.cur_dev_req_obj, MSG_STATUS_ERR_INVALID)
+
+
+
+ 
+ 
