@@ -4,6 +4,7 @@ from syslog import syslog, openlog
 from dbus.mainloop.glib import DBusGMainLoop
 import systemd
 import systemd.daemon
+import json
 
 import customsvc
 import configsvc
@@ -16,34 +17,32 @@ if PYTHON3:
 else:
     import gobject
 
-DEVICE_IG60 = "IG60"
-DEVICE_SOM60 = "SOM60"
+DEVICE_IG60 = "Laird IG60"
 PROC_DEVICE_TREE_MODEL = '/proc/device-tree/model'
 
 def main():
-    gobject.threads_init()
-    dbus.mainloop.glib.DBusGMainLoop(set_as_default=True)
+
+    DBusGMainLoop(set_as_default=True)
+
     if PYTHON3:
         mainloop = glib.MainLoop()
     else:
         mainloop = gobject.MainLoop()
 
-
     try:
         with open(PROC_DEVICE_TREE_MODEL, "r") as f:
             model = f.read()
-            model = model.rstrip()
+            model = model.rstrip('\x00')
             f.close()
     except IOError as e:
         syslog('failed to write value {} to path {}'.format(model, PROC_DEVICE_TREE_MODEL))
+        return 1
 
     manager = None
-    if DEVICE_IG60 in model:
+    if DEVICE_IG60 == model:
         manager = customsvc.CustomService(DEVICE_IG60)
-    elif DEVICE_SOM60 in model:
-        manager = configsvc.ConfigurationService(DEVICE_SOM60)
     else:
-        exit
+        manager = configsvc.ConfigurationService(model)
 
     manager.start()
 
