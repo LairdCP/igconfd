@@ -71,7 +71,9 @@ class ProvManager():
         return self._prov_state
 
     def is_provisioning(self):
-        if self._prov_state == self.PROV_UNPROVISIONED or self.PROV_INPROGRESS_DOWNLOADING or self.PROV_INPROGRESS_APPLYING:
+        if self._prov_state == self.PROV_UNPROVISIONED or \
+            self._prov_state == self.PROV_INPROGRESS_DOWNLOADING or \
+            self._prov_state == self.PROV_INPROGRESS_APPLYING: 
             return True
         else:
             return False
