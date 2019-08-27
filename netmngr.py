@@ -206,9 +206,20 @@ class NetManager():
                 pass
         return list(ap_dict.values())
 
+    def remove_wireless_configs(self):
+        connections = self.nm_settings.ListConnections()
+        for connection in connections:
+            conn_proxy = dbus.SystemBus().get_object(NM_IFACE, connection)
+            conn = dbus.Interface(conn_proxy, NM_CONNECTION_IFACE)
+            settings = conn.GetSettings()
+            if settings['connection']['type'] == '802-11-wireless':
+                conn.Delete()
+
     def activate_connection(self, config_data):
+
         self.activation_status = self.ACTIVATION_PENDING
         try:
+            self.remove_wireless_configs()
             mac = self.get_wlan_hw_address()
             if mac:
                 wlan_mac_addr = mac.replace(':', '')
@@ -348,6 +359,7 @@ class NetManager():
                 gobject.timeout_add(ACTIVATION_TIMER_MS, self.check_activation)
             else:
                 # Failed to create connection from configuration
+                self.activation_cleanup()
                 self.response_cb(self.ACTIVATION_NO_CONN)
         except Exception as e:
             syslog("Failed to connect ap: '%s'" % str(e))
