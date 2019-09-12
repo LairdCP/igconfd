@@ -38,19 +38,16 @@ class CustomService(ConfigurationService):
     def __init__(self, device):
 
         ConfigurationService.__init__(self, device)
-
-        try:
-            self.device_svc = dbus.Interface(self.bus.get_object(DEVICE_SVC_NAME,
-            DEVICE_SVC_PATH), DEVICE_IFACE)
-            self.device_svc.connect_to_signal('ConfigButtonPress', self.config_button_press)
-        
-            self.prov = dbus.Interface(self.bus.get_object(PROV_SVC, PROV_OBJ), PROV_IFACE)
-            self.prov_props = dbus.Interface(self.bus.get_object(PROV_SVC, PROV_OBJ), DBUS_PROP_IFACE)
-            self.prov.connect_to_signal('StateChanged', self.prov_state_changed)
-            self.prov_state = self.prov_props.Get(PROV_IFACE, 'Status')
-  
-        except dbus.DBusException:
-            exit
+        syslog('Starting Laird IG60 configuration service.')
+        self.device_svc = dbus.Interface(self.bus.get_object(DEVICE_SVC_NAME,
+        DEVICE_SVC_PATH), DEVICE_IFACE)
+        self.device_svc.connect_to_signal('ConfigButtonPress', self.config_button_press)
+        self.prov = dbus.Interface(self.bus.get_object(PROV_SVC, PROV_OBJ), PROV_IFACE)
+        self.prov_props = dbus.Interface(self.bus.get_object(PROV_SVC, PROV_OBJ), DBUS_PROP_IFACE)
+        self.prov.connect_to_signal('StateChanged', self.prov_state_changed)
+        self.prov_state = self.prov_props.Get(PROV_IFACE, 'Status')
+        # Request the device service to turn on the LTE modem (if present)
+        self.device_svc.LTE_On()
 
     def enable_ble_service(self):
         syslog('Enabling BLE service.')

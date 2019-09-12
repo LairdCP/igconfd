@@ -57,9 +57,22 @@ DBUS_PROP_IFACE = 'org.freedesktop.DBus.Properties'
 NM_CONNECTION_ACTIVE_IFACE = 'org.freedesktop.NetworkManager.Connection.Active'
 NM_AP_IFACE = 'org.freedesktop.NetworkManager.AccessPoint'
 
+OFONO_ROOT_PATH = '/'
+OFONO_BUS_NAME = 'org.ofono'
+OFONO_MANAGER_IFACE = 'org.ofono.Manager'
+OFONO_MODEM_IFACE = 'org.ofono.Modem'
+OFONO_SIM_IFACE = 'org.ofono.SimManager'
+OFONO_CONNMAN_IFACE = 'org.ofono.ConnectionManager'
+OFONO_CONNECTION_IFACE = 'org.ofono.ConnectionContext'
+
+GEMALTO_MODEM_MODEL = 'PLS62-W'
+
 IG_CONN_NAME = 'ig-connection'
 PAC_FILE = b'/var/lib/private/autoP.pac'
 
+LTE_CONN_NAME = 'lte-connection'
+WWAN_DEV_NAME = 'usb0'
+LTE_ROUTE_METRIC = 700
 
 GET_AP_INTERMEDIATE_TIMEOUT = 2
 ACTIVATION_INTERMEDIATE_TIMEOUT = 5
@@ -132,26 +145,49 @@ def create_wireless_config(conn_name, wlan_mac_addr, config_data):
 
     return wireless_config
 
+def create_lte_conn(conn_name, ifname):
+    return dbus.Dictionary({
+        b'connection' : dbus.Dictionary({
+            b'type' : b'802-3-ethernet',
+            b'id' : conn_name.encode(),
+            b'autoconnect' : True,
+            b'autoconnect-retries' : 0,
+            b'interface-name' : ifname.encode(),
+            b'metered' : 1,
+            }),
+        b'ipv4' : dbus.Dictionary({
+            b'method' : b'auto',
+            b'route-metric' : LTE_ROUTE_METRIC,
+            }),
+        b'ipv6' : dbus.Dictionary({
+            b'method' : b'auto',
+            b'route-metric' : LTE_ROUTE_METRIC,
+            }),
+    })
+
 class NetManager():
     """Activation status codes
     """
 
     ACTIVATION_SUCCESS = 0
     ACTIVATION_PENDING = 1
-    ACTIVATION_FAILED_AUTH = -1
+    ACTIVATION_INVALID = -1
+    ACTIVATION_FAILED_AUTH = -3
     ACTIVATION_FAILED_NETWORK = -2
     ACTIVATION_NO_CONN = -5
+    ACTIVATION_NO_SIM = -8
 
     AP_SCANNING_SUCCESS = 0
     AP_SCANNING = 1
 
     def __init__(self, response_cb):
         try:
-            bus = dbus.SystemBus()
-            self.nm = dbus.Interface(bus.get_object(NM_IFACE, NM_OBJ), NM_IFACE)
-            self.nm_props = dbus.Interface(bus.get_object(NM_IFACE, NM_OBJ), DBUS_PROP_IFACE)
-            self.nm_settings = dbus.Interface(bus.get_object(NM_IFACE, NM_SETTINGS_OBJ), NM_SETTINGS_IFACE)
-            self.wifi_dev_obj = bus.get_object(NM_IFACE, self.nm.GetDeviceByIpIface("wlan0"))
+            self.api_enabled = False
+            self.bus = dbus.SystemBus()
+            self.nm = dbus.Interface(self.bus.get_object(NM_IFACE, NM_OBJ), NM_IFACE)
+            self.nm_props = dbus.Interface(self.bus.get_object(NM_IFACE, NM_OBJ), DBUS_PROP_IFACE)
+            self.nm_settings = dbus.Interface(self.bus.get_object(NM_IFACE, NM_SETTINGS_OBJ), NM_SETTINGS_IFACE)
+            self.wifi_dev_obj = self.bus.get_object(NM_IFACE, self.nm.GetDeviceByIpIface("wlan0"))
             self.wifi_dev = dbus.Interface(self.wifi_dev_obj, NM_WIFI_DEVICE_IFACE)
             self.wifi_dev_props = dbus.Interface(self.wifi_dev_obj, DBUS_PROP_IFACE)
             self.ap_objs = None
@@ -161,14 +197,30 @@ class NetManager():
             self.activation_status = None
             self.wifi_dev_props.connect_to_signal('PropertiesChanged', self.wifi_dev_props_changed)
             self.nm_props.connect_to_signal('PropertiesChanged', self.nm_props_changed)
+            self.nm.connect_to_signal('DeviceAdded', self.nm_device_added)
             self.response_cb = response_cb
             self.api_enabled = True
+            self.modem_present = False
+            self.modem = None
+            self.modem_path = None
+            self.modem_sim = None
+            self.modem_connman = None
+            self.ofono = dbus.Interface(self.bus.get_object(OFONO_BUS_NAME, OFONO_ROOT_PATH), OFONO_MANAGER_IFACE)
+            self.ofono.connect_to_signal('ModemAdded', self.modem_added)
         except dbus.DBusException:
-            self.api_enabled = False   
-    
-    
+            pass
+
     def get_wlan_hw_address(self):
         return str(self.wifi_dev_props.Get(NM_WIFI_DEVICE_IFACE, 'HwAddress'))
+
+    def find_conn_by_id(self, conn_id):
+        conns = self.nm_settings.ListConnections()
+        for c_path in conns:
+            c = dbus.Interface(self.bus.get_object(NM_IFACE, c_path),
+                'org.freedesktop.NetworkManager.Settings.Connection')
+            if c.GetSettings()['connection']['id'] == conn_id:
+                return c
+        return None
 
     def get_access_points(self, timeout=None, continue_scan=False):
         """ Scan for access points
@@ -186,7 +238,7 @@ class NetManager():
                 or time.time() - start_time < timeout):
             ap_obj = self.ap_objs.pop(0)
             try:
-                ap_props = dbus.Interface(dbus.SystemBus().get_object(NM_IFACE, ap_obj), DBUS_PROP_IFACE)
+                ap_props = dbus.Interface(self.bus.get_object(NM_IFACE, ap_obj), DBUS_PROP_IFACE)
                 ssid = ''.join([chr(b) for b in ap_props.Get(NM_AP_IFACE, 'Ssid')])
                 ap_dict.setdefault(ssid, {})['ssid'] = ssid
                 ap_dict[ssid]['ssid'] = ''.join([chr(b) for b in ap_props.Get(NM_AP_IFACE, 'Ssid')])
@@ -209,7 +261,7 @@ class NetManager():
     def remove_wireless_configs(self):
         connections = self.nm_settings.ListConnections()
         for connection in connections:
-            conn_proxy = dbus.SystemBus().get_object(NM_IFACE, connection)
+            conn_proxy = self.bus.get_object(NM_IFACE, connection)
             conn = dbus.Interface(conn_proxy, NM_CONNECTION_IFACE)
             settings = conn.GetSettings()
             if settings['connection']['type'] == '802-11-wireless':
@@ -240,7 +292,7 @@ class NetManager():
             if props_changed['State'] == NM_DEVICE_STATE_ACTIVATED:
                 # Make sure this is our connection
                 active_conn_obj = self.wifi_dev_props.Get(NM_DEVICE_IFACE, 'ActiveConnection')
-                active_conn_props = dbus.Interface(dbus.SystemBus().get_object(NM_IFACE, active_conn_obj), DBUS_PROP_IFACE)
+                active_conn_props = dbus.Interface(self.bus.get_object(NM_IFACE, active_conn_obj), DBUS_PROP_IFACE)
                 conn_obj = active_conn_props.Get(NM_CONNECTION_ACTIVE_IFACE, 'Connection')
                 if conn_obj == self.new_conn_obj:
                     self.activated = True
@@ -259,13 +311,21 @@ class NetManager():
             if self.activated:
                 self.activation_status = self.ACTIVATION_SUCCESS
 
+    def nm_device_added(self, dev_path):
+        dev_props = dbus.Interface(self.bus.get_object(NM_IFACE, dev_path), DBUS_PROP_IFACE)
+        interface = dev_props.Get(NM_DEVICE_IFACE, 'Interface')
+        if interface == WWAN_DEV_NAME:
+            syslog('Device {} connected.'.format(interface))
+            # Request property changes on WWAN interface
+            dev_props.connect_to_signal('PropertiesChanged', self.wwan_dev_props_changed)
+
     def get_activation_status(self):
         return self.activation_status
 
     def activation_cleanup(self):
         if self.new_conn_obj:
             syslog('Removing connection: {}'.format(self.new_conn_obj))
-            conn = dbus.Interface(dbus.SystemBus().get_object(NM_IFACE, self.new_conn_obj), NM_CONNECTION_IFACE)
+            conn = dbus.Interface(self.bus.get_object(NM_IFACE, self.new_conn_obj), NM_CONNECTION_IFACE)
             self.new_conn_obj = None
             self.activated = False
             self.activation_status = None
@@ -318,27 +378,27 @@ class NetManager():
         # Send response indicating request in progress, with TX complete callback to scan
         self.response_cb(self.AP_SCANNING, tx_complete=self.ap_scan_tx_complete)
 
-    def check_activation(self):
+    def check_activation(self, cb):
         status = self.get_activation_status()
         if status == self.ACTIVATION_SUCCESS:
-            self.response_cb(status)
+            cb(status)
             return False # Exit timer
         elif status == self.ACTIVATION_FAILED_AUTH:
-            self.response_cb(status)
+            cb(status)
             self.activation_cleanup()
             return False # Exit timer
         elif status == self.ACTIVATION_FAILED_NETWORK:
-            self.response_cb(status)
+            cb(status)
             self.activation_cleanup()
             return False # Exit timer
         if time.time() - self.activation_start_time > ACTIVATION_FAILURE_TIMEOUT:
             # Failed to activate before timeout, send failure and exit timer
-            self.response_cb(self.ACTIVATION_NO_CONN)
+            cb(self.ACTIVATION_NO_CONN)
             self.activation_cleanup()
             return False
         elif time.time() - self.activation_msg_time > ACTIVATION_INTERMEDIATE_TIMEOUT:
             # Still waiting for activation, send intermediate response
-            self.response_cb(self.ACTIVATION_PENDING)
+            cb(self.ACTIVATION_PENDING)
             self.activation_msg_time = time.time()
 
         return True
@@ -356,10 +416,102 @@ class NetManager():
                 # Set timer task to check connectivity
                 self.activation_start_time = time.time()
                 self.activation_msg_time = self.activation_start_time
-                gobject.timeout_add(ACTIVATION_TIMER_MS, self.check_activation)
+                gobject.timeout_add(ACTIVATION_TIMER_MS, self.check_activation, self.response_cb)
             else:
                 # Failed to create connection from configuration
                 self.activation_cleanup()
                 self.response_cb(self.ACTIVATION_NO_CONN)
         except Exception as e:
             syslog("Failed to connect ap: '%s'" % str(e))
+
+    def is_lte_configured(self):
+        return self.find_conn_by_id(LTE_CONN_NAME) is not None
+
+    def is_modem_available(self):
+        return self.modem_present and self.modem_connman is not None
+
+    def modem_added(self, object_path, properties):
+        syslog('Modem added: {}'.format(object_path))
+        self.modem_path = object_path
+        self.modem = dbus.Interface(self.bus.get_object(OFONO_BUS_NAME,
+            self.modem_path), OFONO_MODEM_IFACE)
+        self.modem.connect_to_signal('PropertyChanged', self.modem_prop_changed)
+        self.modem.SetProperty('Powered', True)
+
+    def modem_prop_changed(self, name, value):
+        if name == 'Model' and value == GEMALTO_MODEM_MODEL:
+            syslog('{} detected!'.format(GEMALTO_MODEM_MODEL))
+            self.modem_present = True
+            # If the LTE connection exists, the modem has already been
+            # configured, so bring it online
+            if self.is_lte_configured():
+                syslog('Modem configured, going online.')
+                self.modem.SetProperty('Online', True)
+                return
+        if self.modem_present and name == 'Interfaces':
+            if OFONO_SIM_IFACE in value and not self.modem_sim:
+                self.modem_sim = dbus.Interface(self.bus.get_object(
+                    OFONO_BUS_NAME, self.modem_path), OFONO_SIM_IFACE)
+            if OFONO_CONNMAN_IFACE in value and not self.modem_connman:
+                self.modem_connman = dbus.Interface(self.bus.get_object(
+                    OFONO_BUS_NAME, self.modem_path), OFONO_CONNMAN_IFACE)
+
+    def wwan_dev_props_changed(self, iface, props_changed, props_invalidated):
+        """ Signal callback for change to the WWAN device properties
+        """
+        if props_changed and 'State' in props_changed:
+            syslog('WWAN state changed: {}'.format(props_changed['State']))
+            if props_changed['State'] == NM_DEVICE_STATE_ACTIVATED:
+                syslog('New WWAN connection was activated!')
+                self.activated = True
+                if self.connectivity == NM_CONNECTIVITY_FULL:
+                    self.activation_status = self.ACTIVATION_SUCCESS
+            elif props_changed['State'] == NM_DEVICE_STATE_FAILED:
+                syslog('New WWAN connection failed.')
+                self.activation_status = self.ACTIVATION_FAILED_AUTH
+
+    def req_connect_lte(self, data, cb=None):
+        """Handle connectLTE message
+        """
+        if not cb:
+            cb = self.response_cb
+        if not self.is_modem_available():
+            syslog('No modem available!')
+            cb(self.ACTIVATION_INVALID)
+            return
+        if self.modem_sim is None or not self.modem_sim.GetProperties()['Present']:
+            syslog('No SIM present!')
+            cb(self.ACTIVATION_NO_SIM)
+            return
+        syslog('Configuring LTE connection.')
+        apn = data.get('apn')
+        username = data.get('username')
+        password = data.get('password')
+        self.activation_status = self.ACTIVATION_PENDING
+        cb(self.activation_status)
+        try:
+            # Create auto-connection for WWAN Ethernet device
+            conn = create_lte_conn(LTE_CONN_NAME, WWAN_DEV_NAME)
+            self.new_conn_obj = self.nm_settings.AddConnection(conn)
+            # Configure the connection (if not default)
+            if apn or username or password:
+                ctxs = self.modem_connman.GetContexts()
+                default_ctx = dbus.Interface(self.bus.get_object(
+                    OFONO_BUS_NAME, ctxs[0][0]), OFONO_CONNECTION_IFACE)
+                if apn:
+                    syslog('Configuring LTE connection for APN: '.format(apn))
+                    default_ctx.SetProperty('AccessPointName', apn)
+                if username:
+                    default_ctx.SetProperty('Username', username)
+                if password:
+                    default_ctx.SetProperty('Password', password)
+            # Set the modem online
+            syslog('Attempting to bring up LTE connection.')
+            self.modem.SetProperty('Online', True)
+            # Set timer to check on activation
+            self.activation_start_time = time.time()
+            self.activation_msg_time = self.activation_start_time
+            gobject.timeout_add(ACTIVATION_TIMER_MS, self.check_activation, cb)
+        except dbus.exceptions.DBusException as e:
+            syslog('Failed to create connection: {}'.format(e))
+            cb(self.ACTIVATION_INVALID)

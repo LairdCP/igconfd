@@ -101,6 +101,7 @@ class ProvManager():
                 { 'username' : prov_data['username'].encode(),
                   'password' : prov_data['password'].encode() } )
             self.response_cb(status)
+            self._prov_state = status
         except KeyError:
             syslog('Invalid provisioning request data.')
             self.response_cb(self.PROV_FAILED_INVALID)
