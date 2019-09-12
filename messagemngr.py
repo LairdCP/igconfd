@@ -22,12 +22,13 @@ MSG_TYPE = 'type'
 MSG_STATUS = 'status'
 MSG_DATA = 'data'
 
-MSG_VERSION_VAL = 1
+MSG_VERSION_VAL = 2
 
 MSG_ID_VERSION = 'version'
 MSG_ID_GET_DEVICE_ID = 'getDeviceId'
 MSG_ID_GET_APS = 'getAccessPoints'
 MSG_ID_CONNECT_AP = 'connectAP'
+MSG_ID_CONNECT_LTE = 'connectLTE'
 MSG_ID_PROVISION_URL = 'provisionURL'
 MSG_ID_GET_DEVICE_CAPS = 'getDeviceCaps'
 MSG_ID_GET_STORAGE_INFO = 'getStorageInfo'
@@ -42,6 +43,7 @@ MSG_STATUS_ERR_NOTFOUND = -4
 MSG_STATUS_ERR_NOCONN = -5
 MSG_STATUS_ERR_DEVICE = -6
 MSG_STATUS_API_DISABLED = -7
+MSG_STATUS_ERR_NOSIM = -8
 
 EXT_STORAGE_STATUS_FULL = -1
 EXT_STORAGE_STATUS_FAILED = -2
@@ -128,8 +130,10 @@ class MessageManager():
         try:
             msg_type = req_obj[MSG_TYPE]
             syslog('Processing request: {}'.format(msg_type))
-            # Check version on all messages except the version check!
-            if msg_type != MSG_ID_VERSION and req_obj[MSG_VERSION] != MSG_VERSION_VAL:
+            # Check version on all messages except the version check;
+            # don't allow future versions (client must be backwards
+            # compatible)
+            if msg_type != MSG_ID_VERSION and req_obj[MSG_VERSION] > MSG_VERSION_VAL:
                 self.send_response(req_obj, MSG_STATUS_ERR_INVALID)
                 return
             if msg_type == MSG_ID_VERSION:
@@ -142,6 +146,8 @@ class MessageManager():
                 self.handle_net_manager_request(MSG_ID_GET_APS, req_obj)
             elif msg_type == MSG_ID_CONNECT_AP:
                 self.handle_net_manager_request(MSG_ID_CONNECT_AP, req_obj)
+            elif msg_type == MSG_ID_CONNECT_LTE:
+                self.handle_net_manager_request(MSG_ID_CONNECT_LTE, req_obj)
             elif msg_type == MSG_ID_PROVISION_URL:
                 self.handle_prov_manager_request(MSG_ID_PROVISION_URL, req_obj)
             elif msg_type == MSG_ID_GET_STORAGE_INFO:
@@ -173,8 +179,12 @@ class MessageManager():
 
         cap_data['isProvisioned'] = self.prov_manager.is_provisioned()
 
-        if self.dev_manager.api_enabled:
-            cap_data['deviceCaps'] = ['getStorageInfo', 'extStorageSwap']
+        if self.prov_manager.api_enabled:
+            cap_data.setdefault('deviceCaps', []).append('provisionURL')
+            cap_data.setdefault('deviceCaps', []).extend(['getStorageInfo', 'extStorageSwap'])
+
+        if self.net_manager.is_modem_available():
+            cap_data.setdefault('deviceCaps', []).append('connectLTE')
 
         self.send_response(req_obj, MSG_STATUS_SUCCESS, data=cap_data)
 
@@ -182,17 +192,28 @@ class MessageManager():
     Response callbacks for the various service managers
     """
     def send_net_response(self, status, data=None, tx_complete=None):
-        if status == NetManager.ACTIVATION_SUCCESS or NetManager.AP_SCANNING_SUCCESS:
+        if status == NetManager.ACTIVATION_SUCCESS or status == NetManager.AP_SCANNING_SUCCESS:
             self.send_response(self.cur_net_req_obj, MSG_STATUS_SUCCESS)
         elif status == NetManager.ACTIVATION_FAILED_AUTH:
             self.send_response(self.cur_net_req_obj, MSG_STATUS_ERR_AUTH)
         elif status == NetManager.ACTIVATION_FAILED_NETWORK:
             self.send_response(self.cur_net_req_obj, MSG_STATUS_ERR_NOCONN)
+        elif status == NetManager.ACTIVATION_NO_SIM:
+            self.send_response(self.cur_net_req_obj, MSG_STATUS_ERR_NOSIM)
         elif status == NetManager.ACTIVATION_NO_CONN:
             self.send_response(self.cur_net_req_obj, MSG_STATUS_ERR_NOCONN)
             self.net_manager.activation_cleanup()
-        elif status == NetManager.ACTIVATION_PENDING or NetManager.AP_SCANNING:
+        elif status == NetManager.ACTIVATION_PENDING or status == NetManager.AP_SCANNING:
             self.send_response(self.cur_net_req_obj, MSG_STATUS_INTERMEDIATE, data, tx_complete)
+
+    def lte_autoconnect_status(self, status, data=None, tx_complete=None):
+        if status == NetManager.ACTIVATION_PENDING or status == NetManager.AP_SCANNING:
+            # LTE connect is still pending, send intermediate status
+            resp_data = {'operation' : 'LTE autoconnect'}
+            self.send_response(self.cur_prov_req_obj, MSG_STATUS_INTERMEDIATE, resp_data, tx_complete)
+        else:
+            # LTE connect has completed (success or failure); continue provisioning
+            self.prov_manager.start_provisioning(convert_dict_keys_values_to_string(self.cur_prov_req_obj['data']))
 
     def send_prov_response(self, status, data=None):
         if status == ProvManager.PROV_COMPLETE_SUCCESS:
@@ -205,9 +226,11 @@ class MessageManager():
         elif status == ProvManager.PROV_FAILED_TIMEOUT:
             self.send_response(self.cur_prov_req_obj, MSG_STATUS_ERR_TIMEOUT)
         elif status == ProvManager.PROV_FAILED_CONNECT:
+            self.send_response(self.cur_prov_req_obj, MSG_STATUS_ERR_NOCONN)
+        elif status == ProvManager.PROV_FAILED_NOT_FOUND:
             self.send_response(self.cur_prov_req_obj, MSG_STATUS_ERR_NOTFOUND)
         elif status < 0: # All other failures
-            self.send_response(self.cur_prov_req_obj, MSG_STATUS_ERR_NOCONN)
+            self.send_response(self.cur_prov_req_obj, MSG_STATUS_ERR_INVALID)
         else:
             self.send_response(self.cur_prov_req_obj, MSG_STATUS_INTERMEDIATE, data)
 
@@ -229,23 +252,34 @@ class MessageManager():
              self.net_manager.req_get_access_points()
         elif msg_type == MSG_ID_CONNECT_AP and 'data' in req_obj:
              self.net_manager.req_connect_ap(convert_dict_keys_values_to_string(self.cur_net_req_obj['data']))
-  
+        elif msg_type == MSG_ID_CONNECT_LTE:
+             if 'data' in req_obj:
+                 params = convert_dict_keys_values_to_string(self.cur_net_req_obj['data'])
+             else:
+                 params = {}
+             self.net_manager.req_connect_lte(params)
 
     def handle_prov_manager_request(self, msg_type, req_obj):
 
         if self.net_manager.api_enabled:
             self.net_manager.stop_scanning()
-            
+
         if self.prov_manager.api_enabled:
             self.cur_prov_req_obj = req_obj
-            
             if msg_type == MSG_ID_PROVISION_URL and 'data' in req_obj:
-                self.prov_manager.start_provisioning(convert_dict_keys_values_to_string(req_obj['data']))
-
+                # If the LTE modem is available and has not been
+                # configured, AND this request has the legacy version (1),
+                # configure the default LTE profile before performing
+                # provisioning via URL; this enables use of the
+                # LTE modem when using the legacy mobile application.
+                if req_obj['version'] == 1 and self.net_manager.is_modem_available() and not self.net_manager.is_lte_configured():
+                    self.net_manager.req_connect_lte({}, self.lte_autoconnect_status)
+                else:
+                    self.prov_manager.start_provisioning(convert_dict_keys_values_to_string(req_obj['data']))
         else:
             self.send_prov_response(self.cur_prov_req_obj, MSG_STATUS_ERR_INVALID)
 
-    def handle_dev_manager_request(self, msg_type, req_obj):  
+    def handle_dev_manager_request(self, msg_type, req_obj):
         if self.dev_manager.api_enabled:
             self.cur_dev_req_obj = req_obj
 

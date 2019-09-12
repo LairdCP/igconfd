@@ -98,7 +98,7 @@ class Application(dbus.service.Object):
              self.msg_manager.add_request(req_obj)
              self.rx_message = None
          except ValueError:
-             syslog("Value Error!")
+             # Couldn't parse JSON, set timeout for additional data
              self.rx_timeout_id = gobject.timeout_add(2000, self.rx_timeout)
 
     def disc_cb(self):
