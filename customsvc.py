@@ -76,6 +76,7 @@ class CustomService(ConfigurationService):
         gobject.timeout_add(2000, self.disable_ble_service)
 
     def prov_state_changed(self, state):
+        self.prov_state = state
         if state == PROV_COMPLETE_SUCCESS:
             self.stop()
 
