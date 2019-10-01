@@ -171,9 +171,8 @@ class MessageManager():
         """
         cap_data = {}
 
-        if self.prov_manager.api_enabled:
-            cap_data['isProvisioned'] = str(self.prov_manager.is_provisioned())
-  
+        cap_data['isProvisioned'] = self.prov_manager.is_provisioned()
+
         if self.dev_manager.api_enabled:
             cap_data['deviceCaps'] = ['getStorageInfo', 'extStorageSwap']
 
