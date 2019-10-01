@@ -37,6 +37,7 @@ class ProvManager():
 
 
     def __init__(self, response_cb):
+        self._prov_state = self.PROV_UNPROVISIONED
         try:
             bus = dbus.SystemBus()
             self.prov = dbus.Interface(bus.get_object(PROV_SVC, PROV_OBJ), PROV_IFACE)
@@ -51,15 +52,11 @@ class ProvManager():
             else:
                 self.api_enabled = True
         except dbus.DBusException:
-            self.api_enabled = False          
-   
-    def is_provisioned(self):
-        if self._prov_state == self.PROV_COMPLETE_SUCCESS:
-            return True
-        else:
-            return False
+            self.api_enabled = False
 
-    
+    def is_provisioned(self):
+        return self._prov_state == self.PROV_COMPLETE_SUCCESS
+
     def disable_api(self):
         self.api_enabled = False
 
