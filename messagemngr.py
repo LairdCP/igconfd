@@ -28,6 +28,7 @@ MSG_ID_VERSION = 'version'
 MSG_ID_GET_DEVICE_ID = 'getDeviceId'
 MSG_ID_GET_APS = 'getAccessPoints'
 MSG_ID_CONNECT_AP = 'connectAP'
+MSG_ID_UPDATE_APS = 'updateAPS'
 MSG_ID_CONNECT_LTE = 'connectLTE'
 MSG_ID_PROVISION_URL = 'provisionURL'
 MSG_ID_GET_DEVICE_CAPS = 'getDeviceCaps'
@@ -146,6 +147,8 @@ class MessageManager():
                 self.handle_net_manager_request(MSG_ID_GET_APS, req_obj)
             elif msg_type == MSG_ID_CONNECT_AP:
                 self.handle_net_manager_request(MSG_ID_CONNECT_AP, req_obj)
+            elif msg_type == MSG_ID_UPDATE_APS:
+                self.handle_net_manager_request(MSG_ID_UPDATE_APS, req_obj)
             elif msg_type == MSG_ID_CONNECT_LTE:
                 self.handle_net_manager_request(MSG_ID_CONNECT_LTE, req_obj)
             elif msg_type == MSG_ID_PROVISION_URL:
@@ -258,14 +261,20 @@ class MessageManager():
              else:
                  params = {}
              self.net_manager.req_connect_lte(params)
+        elif msg_type == MSG_ID_UPDATE_APS and 'data' in self.cur_net_req_obj:
+            ret = self.net_manager.req_update_aps(convert_dict_keys_values_to_string(self.cur_net_req_obj['data']))
+            if ret:
+                self.send_net_response(NetManager.ACTIVATION_SUCCESS)
+            else:
+                self.send_net_response(NetManager.ACTIVATION_FAILED_NETWORK)
 
     def handle_prov_manager_request(self, msg_type, req_obj):
 
         if self.net_manager.api_enabled:
             self.net_manager.stop_scanning()
 
+        self.cur_prov_req_obj = req_obj
         if self.prov_manager.api_enabled:
-            self.cur_prov_req_obj = req_obj
             if msg_type == MSG_ID_PROVISION_URL and 'data' in req_obj:
                 # If the LTE modem is available and has not been
                 # configured, AND this request has the legacy version (1),
@@ -277,7 +286,7 @@ class MessageManager():
                 else:
                     self.prov_manager.start_provisioning(convert_dict_keys_values_to_string(req_obj['data']))
         else:
-            self.send_prov_response(self.cur_prov_req_obj, MSG_STATUS_ERR_INVALID)
+            self.send_prov_response(MSG_STATUS_ERR_INVALID, self.cur_prov_req_obj)
 
     def handle_dev_manager_request(self, msg_type, req_obj):
         if self.dev_manager.api_enabled:

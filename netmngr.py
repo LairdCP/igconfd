@@ -79,17 +79,32 @@ ACTIVATION_INTERMEDIATE_TIMEOUT = 5
 ACTIVATION_FAILURE_TIMEOUT = 60
 ACTIVATION_TIMER_MS = 500
 
+NM_AUTOCONNECT_PRIORITY = b'autoconnect-priority'
+NM_CONNECTION = b'connection'
+NM_ID = b'id'
+NM_UUID = b'uuid'
+
+CFG_PRIORITY = 'priority'
+CFG_SSID = 'ssid'
+
 """
 Create a NetworkManager wireless configuration from
 the BLE input configuration data
 """
-def create_wireless_config(conn_name, wlan_mac_addr, config_data):
+def create_wireless_config(wlan_mac_addr, config_data):
     try:
+        syslog("Creating wireless config out of: " + str(config_data))
+
+        priority = 0
+        if 'priority' in config_data:
+            priority = config_data['priority']
+
         wireless_config = dbus.Dictionary({
             b'connection' : dbus.Dictionary({
                 b'type' : b'802-11-wireless',
-                b'id' : conn_name.encode(),
+                b'id' : config_data['ssid'].encode(),
                 b'autoconnect' : True,
+                b'autoconnect-priority' : priority,
                 b'interface-name' : b'wlan0'
                 }),
             b'802-11-wireless' : dbus.Dictionary({
@@ -222,6 +237,15 @@ class NetManager():
                 return c
         return None
 
+    def find_conn_path_by_id(self, conn_id):
+        conns = self.nm_settings.ListConnections()
+        for c_path in conns:
+            c = dbus.Interface(self.bus.get_object(NM_IFACE, c_path),
+                'org.freedesktop.NetworkManager.Settings.Connection')
+            if c.GetSettings()['connection']['id'] == conn_id:
+                return c_path
+        return None
+
     def get_access_points(self, timeout=None, continue_scan=False):
         """ Scan for access points
         """
@@ -258,27 +282,21 @@ class NetManager():
                 pass
         return list(ap_dict.values())
 
-    def remove_wireless_configs(self):
-        connections = self.nm_settings.ListConnections()
-        for connection in connections:
-            conn_proxy = self.bus.get_object(NM_IFACE, connection)
-            conn = dbus.Interface(conn_proxy, NM_CONNECTION_IFACE)
-            settings = conn.GetSettings()
-            if settings['connection']['type'] == '802-11-wireless':
-                conn.Delete()
 
     def activate_connection(self, config_data):
-
         self.activation_status = self.ACTIVATION_PENDING
         try:
-            self.remove_wireless_configs()
             mac = self.get_wlan_hw_address()
             if mac:
                 wlan_mac_addr = mac.replace(':', '')
 
-            conn = create_wireless_config(IG_CONN_NAME, wlan_mac_addr, config_data)
-            self.new_conn_obj = self.nm_settings.AddConnection(conn)
-            self.nm.ActivateConnection(self.new_conn_obj, self.wifi_dev_obj, '/')
+            priority = self.get_highest_priority() + 1
+            config_data[CFG_PRIORITY] = priority
+            conn = create_wireless_config(wlan_mac_addr, config_data)
+            ret, conn = self.add_or_modify_connection(conn)
+            if ret:
+                self.new_conn_obj = conn
+                self.nm.ActivateConnection(self.new_conn_obj, self.wifi_dev_obj, '/')
             return True
         except dbus.exceptions.DBusException as e:
             syslog('Failed to create connection: {}'.format(e))
@@ -423,6 +441,75 @@ class NetManager():
                 self.response_cb(self.ACTIVATION_NO_CONN)
         except Exception as e:
             syslog("Failed to connect ap: '%s'" % str(e))
+
+    def get_highest_priority(self):
+        priority = 0
+
+        conns = self.nm_settings.ListConnections()
+        for c_path in conns:
+            c = dbus.Interface(self.bus.get_object(NM_IFACE, c_path),
+                NM_CONNECTION_IFACE)
+            conn = c.GetSettings()
+
+            if 'autoconnect-priority' in conn['connection']:
+                if conn['connection']['autoconnect-priority'] > priority:
+                    priority = conn['connection']['autoconnect-priority']
+
+        return priority
+
+    def remove_connection(self,id):
+        try:
+            conn = self.find_conn_by_id(id)
+            if conn != None:
+                conn.Delete()
+        except dbus.exceptions.DBusException as e:
+            syslog('Failed to delete connection: {}'.format(e))
+            return False
+
+        return True
+
+    def add_or_modify_connection(self, config):
+        try:
+            conn = self.find_conn_path_by_id(config[NM_CONNECTION][NM_ID].decode())
+            if conn != None:
+                conn_iface = dbus.Interface(self.bus.get_object(NM_IFACE, conn),
+                'org.freedesktop.NetworkManager.Settings.Connection')
+                cur = conn_iface.GetSettings()
+                config[NM_CONNECTION][NM_UUID] = cur['connection']['uuid']
+                conn_iface.Update(config)
+            else:
+                syslog(str(config))
+                conn = self.nm_settings.AddConnection(config)
+        except dbus.exceptions.DBusException as e:
+            syslog('Failed to add or modify connection: {}'.format(e))
+            return False, None
+
+        return True, conn
+
+    def req_update_aps(self, config_data):
+        mac = self.get_wlan_hw_address()
+        if mac:
+            wlan_mac_addr = mac.replace(':', '')
+
+        try:
+            for config in config_data:
+                if CFG_PRIORITY in config and config[CFG_PRIORITY] < 0:
+                    if not self.remove_connection(config[CFG_SSID]):
+                        return False
+                else:
+                    conn = create_wireless_config(wlan_mac_addr, config)
+                    ret, conn = self.add_or_modify_connection(conn)
+                    if not ret:
+                        return False
+        except KeyError:
+            syslog('Invalid input configuration')
+            return False
+        except Exception as e:
+            syslog('Failed update configs %s' % str(e))
+            return False
+
+        return True
+
 
     def is_lte_configured(self):
         return self.find_conn_by_id(LTE_CONN_NAME) is not None
