@@ -1,9 +1,5 @@
 import pygatt
 import json
-import threading
-import string
-import random
-
 import sys
 PYTHON3 = sys.version_info >= (3, 0)
 if PYTHON3:
@@ -27,7 +23,7 @@ conn = None
 
 def tx_cb(handle, value):
     global msg_data
-    msg_data = (msg_data or '') + value
+    msg_data = (msg_data or b'') + value
     if msg_data.decode('utf8')[-1] == '}':
         try:
             obj = json.loads(msg_data.decode('utf8'))
@@ -46,7 +42,7 @@ def send_msg(message):
     tx_chunk = message[:MAX_TX_LEN]
     tx_remain = message[MAX_TX_LEN:]
     while tx_chunk and len(tx_chunk) > 0:
-        conn.char_write(UUID_VSP_RX, bytearray(tx_chunk), wait_for_response=True)
+        conn.char_write(UUID_VSP_RX, bytearray(tx_chunk.encode('utf8')), wait_for_response=True)
         tx_chunk = tx_remain[:MAX_TX_LEN]
         tx_remain = tx_remain[MAX_TX_LEN:]
 
@@ -68,7 +64,7 @@ def await_resp(timeout):
 def connect(addr=DEFAULT_ADDR):
     global conn
     print('Connecting to {}'.format(addr))
-    conn = adapter.connect(DEFAULT_ADDR, timeout=10)
+    conn = adapter.connect(addr, timeout=10)
     conn.subscribe(UUID_VSP_TX, callback=tx_cb, indication=True)
 
 def scan():
@@ -106,8 +102,8 @@ def req_aps():
         else:
             o = None
 
-def req_connect_ap(conn):
-    send_req('connectAP', data=conn)
+def req_connect_ap(connection):
+    send_req('connectAP', data=connection)
     o = await_resp(10)
     while o:
         print(json.dumps(o, sort_keys=True, indent=4, separators=(',', ': ')))
