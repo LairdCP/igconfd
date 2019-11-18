@@ -35,14 +35,20 @@ LE_SUPERVISION_TIMEOUT = 500 # 5000 ms
 LE_ADV_MIN_INTERVAL = 200 # 125 ms
 LE_ADV_MAX_INTERVAL = 800 # 500 ms
 
+IGCONFD_SVC = 'com.lairdtech.security.ConfigService'
+IGCONFD_OBJ = '/com/lairdtech/security/ConfigService'
+
 class Application(dbus.service.Object):
     """
     org.bluez.GattApplication1 interface implementation
     """
     def __init__(self, bus, device_name):
-        self.path = '/'
+        self.path = IGCONFD_OBJ
         self.services = []
-        dbus.service.Object.__init__(self, bus, self.path)
+
+        name = dbus.service.BusName(IGCONFD_SVC, bus=self.bus)
+        super().__init__(name, self.path)
+
         self.device_name = device_name
 
         # Start the VSP service
@@ -66,6 +72,19 @@ class Application(dbus.service.Object):
 
     def add_service(self, service):
         self.services.append(service)
+
+    @dbus.service.method("com.lairdtech.security.ConfigInterface",
+                         in_signature='s', out_signature='i')
+    def SetWifiConfigurations(self, config):
+        try:
+            wifi_configs = json.loads(config)
+        except Exception as e:
+            syslog("Configuration failed, exception = %s" % str(e))
+            return -1
+
+        self.msg_manager.net_manager.req_update_aps(wifi_configs)
+        return 0
+
 
     @dbus.service.method(DBUS_OM_IFACE, out_signature='a{oa{sa{sv}}}')
     def GetManagedObjects(self):
