@@ -34,7 +34,7 @@ class ProvManager():
     PROV_FAILED_AUTH = -3
     PROV_FAILED_TIMEOUT = -4
     PROV_FAILED_NOT_FOUND = -5
-
+    PROV_FAILED_BAD_CONFIG = -6
 
     def __init__(self, response_cb):
         self._prov_state = self.PROV_UNPROVISIONED
