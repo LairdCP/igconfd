@@ -421,6 +421,39 @@ class NetManager():
 
         return True
 
+    def get_config_from_nm_config(self, nm_config):
+        config = {}
+        try:
+            config['ssid'] = ''.join([chr(b) for b in nm_config['802-11-wireless']['ssid']])
+            if 'autoconnect-priority' in nm_config['connection']:
+                config['priority'] = int(nm_config['connection']['autoconnect-priority'])
+            if '802-11-wireless-security' in nm_config:
+                if nm_config['802-11-wireless-security']['key-mgmt'] == 'wpa-eap':
+                    config['eap'] = 'eap'
+                    config['phase2-auth']  = ''.join([str(b) for b in nm_config['802-1x']['phase2-auth']])
+        except KeyError:
+            syslog('Invalid nm config')
+            return None
+
+        return config
+
+    def req_get_aps(self):
+        configs = []
+        try:
+            conns = self.nm_settings.ListConnections()
+            for c_path in conns:
+                c = dbus.Interface(self.bus.get_object(NM_IFACE, c_path),
+                    'org.freedesktop.NetworkManager.Settings.Connection')
+                config = c.GetSettings()
+                if config['connection']['type'] == '802-11-wireless':
+                    config = self.get_config_from_nm_config(config)
+                    if config is not None:
+                        configs.append(config)
+        except dbus.DBusException:
+            return None
+
+        return configs
+
     def req_connect_ap(self, data):
         """Handle Connect to AP message
         """

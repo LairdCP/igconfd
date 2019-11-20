@@ -29,6 +29,7 @@ MSG_ID_GET_DEVICE_ID = 'getDeviceId'
 MSG_ID_GET_APS = 'getAccessPoints'
 MSG_ID_CONNECT_AP = 'connectAP'
 MSG_ID_UPDATE_APS = 'updateAPS'
+MSG_ID_GET_CURRENT_APS = 'getAPS'
 MSG_ID_CONNECT_LTE = 'connectLTE'
 MSG_ID_PROVISION_URL = 'provisionURL'
 MSG_ID_GET_DEVICE_CAPS = 'getDeviceCaps'
@@ -151,6 +152,8 @@ class MessageManager():
                 self.handle_net_manager_request(MSG_ID_CONNECT_AP, req_obj)
             elif msg_type == MSG_ID_UPDATE_APS:
                 self.handle_net_manager_request(MSG_ID_UPDATE_APS, req_obj)
+            elif msg_type == MSG_ID_GET_CURRENT_APS:
+                self.handle_net_manager_request(MSG_ID_GET_CURRENT_APS, req_obj)
             elif msg_type == MSG_ID_CONNECT_LTE:
                 self.handle_net_manager_request(MSG_ID_CONNECT_LTE, req_obj)
             elif msg_type == MSG_ID_PROVISION_URL:
@@ -198,7 +201,7 @@ class MessageManager():
     """
     def send_net_response(self, status, data=None, tx_complete=None):
         if status == NetManager.ACTIVATION_SUCCESS or status == NetManager.AP_SCANNING_SUCCESS:
-            self.send_response(self.cur_net_req_obj, MSG_STATUS_SUCCESS)
+            self.send_response(self.cur_net_req_obj, MSG_STATUS_SUCCESS, data)
         elif status == NetManager.ACTIVATION_FAILED_AUTH:
             self.send_response(self.cur_net_req_obj, MSG_STATUS_ERR_AUTH)
         elif status == NetManager.ACTIVATION_FAILED_NETWORK:
@@ -271,6 +274,12 @@ class MessageManager():
             ret = self.net_manager.req_update_aps(convert_dict_keys_values_to_string(self.cur_net_req_obj['data']))
             if ret:
                 self.send_net_response(NetManager.ACTIVATION_SUCCESS)
+            else:
+                self.send_net_response(NetManager.ACTIVATION_FAILED_NETWORK)
+        elif msg_type == MSG_ID_GET_CURRENT_APS:
+            aps = self.net_manager.req_get_aps()
+            if aps is not None:
+                self.send_net_response(NetManager.ACTIVATION_SUCCESS, data=aps)
             else:
                 self.send_net_response(NetManager.ACTIVATION_FAILED_NETWORK)
 
