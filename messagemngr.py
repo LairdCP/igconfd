@@ -45,6 +45,8 @@ MSG_STATUS_ERR_NOCONN = -5
 MSG_STATUS_ERR_DEVICE = -6
 MSG_STATUS_API_DISABLED = -7
 MSG_STATUS_ERR_NOSIM = -8
+MSG_STATUS_ERR_BAD_CONFIG = -9
+MSG_STATUS_ERR_UNKNOWN = -10
 
 EXT_STORAGE_STATUS_FULL = -1
 EXT_STORAGE_STATUS_FAILED = -2
@@ -232,8 +234,12 @@ class MessageManager():
             self.send_response(self.cur_prov_req_obj, MSG_STATUS_ERR_NOCONN)
         elif status == ProvManager.PROV_FAILED_NOT_FOUND:
             self.send_response(self.cur_prov_req_obj, MSG_STATUS_ERR_NOTFOUND)
-        elif status < 0: # All other failures
+        elif status == ProvManager.PROV_FAILED_BAD_CONFIG:
+            self.send_response(self.cur_prov_req_obj, MSG_STATUS_ERR_BAD_CONFIG)
+        elif status == ProvManager.PROV_FAILED_INVALID:
             self.send_response(self.cur_prov_req_obj, MSG_STATUS_ERR_INVALID)
+        elif status < 0: # All other failures
+            self.send_response(self.cur_prov_req_obj, MSG_STATUS_ERR_UNKNOWN)
         else:
             self.send_response(self.cur_prov_req_obj, MSG_STATUS_INTERMEDIATE, data)
 
