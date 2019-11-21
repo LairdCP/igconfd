@@ -34,6 +34,8 @@ BUTTON_PRESS_SHORT = 0
 BLE_STATE_ACTIVE = 1
 BLE_STATE_INACTIVE = 0
 
+BUTTON_PRESS_MSG_TIMEOUT_MS = 60000
+
 class CustomService(ConfigurationService):
     def __init__(self, device):
 
@@ -73,6 +75,8 @@ class CustomService(ConfigurationService):
     def stop(self):
         # Stop after a delay to allow last status message to be sent
         gobject.timeout_add(2000, self.disable_ble_service)
+        # Stop message timeout callback
+        self.msg_manager.set_msg_timeout(None, None)
 
     def prov_state_changed(self, state):
         self.prov_state = state
@@ -84,3 +88,5 @@ class CustomService(ConfigurationService):
         if press_type == BUTTON_PRESS_SHORT and self.prov_state == PROV_COMPLETE_SUCCESS:
             syslog('Config button pressed, enabling BLE service.')
             self.enable_ble_service()
+            # Set message timeout callback to disable service after inactivity
+            self.msg_manager.set_msg_timeout(BUTTON_PRESS_MSG_TIMEOUT_MS, self.stop)
