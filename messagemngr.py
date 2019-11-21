@@ -99,6 +99,9 @@ class MessageManager():
 
         self.shutdown_cb = shutdown_cb
         self.cur_req_obj = None
+        self.msg_timeout_id = None
+        self.msg_timeout_cb = None
+        self.msg_timeout_delay = None
 
     def start(self, tx_msg):
         self.tx_msg = tx_msg
@@ -115,9 +118,22 @@ class MessageManager():
         syslog('BLE client disconnected, resetting state.')
         self.net_manager.stop_scanning()
 
+    def reset_msg_timeout(self):
+        if self.msg_timeout_id is not None:
+            gobject.source_remove(self.msg_timeout_id)
+            self.msg_timeout_id = None
+        if self.msg_timeout_cb is not None and self.msg_timeout_delay is not None:
+            self.msg_timeout_id = gobject.timeout_add(self.msg_timeout_delay, self.msg_timeout_cb)
+
+    def set_msg_timeout(self, msg_timeout_delay, msg_timeout_cb):
+        self.msg_timeout_delay = msg_timeout_delay
+        self.msg_timeout_cb = msg_timeout_cb
+        self.reset_msg_timeout()
+
     def send_response(self, req_obj, status, data=None, tx_complete=None):
         """Send a response message based on the request, with optional data
         """
+        self.reset_msg_timeout()
         try:
             resp_obj = { MSG_VERSION : MSG_VERSION_VAL, MSG_ID : req_obj[MSG_ID],
                      MSG_TYPE : req_obj[MSG_TYPE], MSG_STATUS : status }
@@ -131,6 +147,7 @@ class MessageManager():
     def handle_command(self, req_obj):
         """Process a request object
         """
+        self.reset_msg_timeout()
         try:
             msg_type = req_obj[MSG_TYPE]
             syslog('Processing request: {}'.format(msg_type))
