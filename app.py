@@ -202,6 +202,8 @@ class Application(dbus.service.Object):
         time.sleep(1.0)
         self.write_debugfs_val('conn_min_interval', LE_CONN_MIN_INTERVAL)
         self.write_debugfs_val('adv_max_interval', LE_ADV_MAX_INTERVAL)
+
+    def register_le_services(self):
         syslog('Registering GATT application...')
         self.gatt_manager.RegisterApplication(self.get_path(), {},
             reply_handler=self.register_app_cb,
@@ -211,7 +213,7 @@ class Application(dbus.service.Object):
             reply_handler=self.register_ad_cb,
             error_handler=self.register_ad_error_cb)
 
-    def deinit_ble_service(self):
+    def deregister_le_services(self):
         syslog('Unregistering LE Advertisement Data...')
         self.advert_manager.UnregisterAdvertisement(self.le_adv_data.get_path())
         syslog('Unregistering GATT application...')
