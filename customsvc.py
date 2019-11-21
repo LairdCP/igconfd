@@ -51,6 +51,7 @@ class CustomService(ConfigurationService):
 
     def enable_ble_service(self):
         syslog('Enabling BLE service.')
+        self.register_le_services()
         self.device_svc.SetBLEState(BLE_STATE_ACTIVE)
         subprocess.call(['btmgmt', 'power', 'on'])
 
@@ -58,6 +59,7 @@ class CustomService(ConfigurationService):
         syslog('Disabling BLE service.')
         self.disconnect_devices()
         self.device_svc.SetBLEState(BLE_STATE_INACTIVE)
+        self.deregister_le_services()
         subprocess.call(['btmgmt', 'power', 'off'])
         return False
 
