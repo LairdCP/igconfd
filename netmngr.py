@@ -429,8 +429,14 @@ class NetManager():
                 config['priority'] = int(nm_config['connection']['autoconnect-priority'])
             if '802-11-wireless-security' in nm_config:
                 if nm_config['802-11-wireless-security']['key-mgmt'] == 'wpa-eap':
-                    config['eap'] = 'eap'
+                    config['eap'] = ''.join([str(b) for b in nm_config['802-1x']['eap']])
                     config['phase2-auth']  = ''.join([str(b) for b in nm_config['802-1x']['phase2-auth']])
+            if ('ipv6' in nm_config and
+                'ignore-auto-dns' in nm_config['ipv6'] and 'never-default' in nm_config['ipv6'] and
+                nm_config['ipv6']['ignore-auto-dns'] and nm_config['ipv6']['never-default']):
+                config['disable-ipv6'] = True
+            else:
+                config['disable-ipv6'] = False
         except KeyError:
             syslog('Invalid nm config')
             return None
