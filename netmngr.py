@@ -79,10 +79,10 @@ ACTIVATION_INTERMEDIATE_TIMEOUT = 5
 ACTIVATION_FAILURE_TIMEOUT = 60
 ACTIVATION_TIMER_MS = 500
 
-NM_AUTOCONNECT_PRIORITY = b'autoconnect-priority'
-NM_CONNECTION = b'connection'
-NM_ID = b'id'
-NM_UUID = b'uuid'
+NM_AUTOCONNECT_PRIORITY = 'autoconnect-priority'
+NM_CONNECTION = 'connection'
+NM_ID = 'id'
+NM_UUID = 'uuid'
 
 CFG_PRIORITY = 'priority'
 CFG_SSID = 'ssid'
@@ -100,23 +100,23 @@ def create_wireless_config(wlan_mac_addr, config_data):
             priority = config_data['priority']
 
         wireless_config = dbus.Dictionary({
-            b'connection' : dbus.Dictionary({
-                b'type' : b'802-11-wireless',
-                b'id' : config_data['ssid'].encode(),
-                b'autoconnect' : True,
-                b'autoconnect-priority' : priority,
-                b'interface-name' : b'wlan0'
+            dbus.String('connection') : dbus.Dictionary({
+                dbus.String('type') : dbus.String('802-11-wireless'),
+                dbus.String('id') : config_data['ssid'].encode(),
+                dbus.String('autoconnect') : True,
+                dbus.String('autoconnect-priority') : priority,
+                dbus.String('interface-name') : dbus.String('wlan0')
                 }),
-            b'802-11-wireless' : dbus.Dictionary({
-                b'mode' : b'infrastructure',
-                b'ssid' : dbus.ByteArray(config_data['ssid'].encode()),
-                b'hidden' : True
+            dbus.String('802-11-wireless') : dbus.Dictionary({
+                dbus.String('mode') : dbus.String('infrastructure'),
+                dbus.String('ssid') : dbus.ByteArray(config_data['ssid'].encode()),
+                dbus.String('hidden') : True
                 })
         })
         if 'psk' in config_data:
             wireless_config['802-11-wireless-security'] = dbus.Dictionary({
-                b'key-mgmt' : b'wpa-psk',
-                b'psk' : config_data['psk'].encode()
+                dbus.String('key-mgmt') : dbus.String('wpa-psk'),
+                dbus.String('psk') : config_data['psk'].encode()
             })
         elif 'wep-key' in config_data:
             if 'wep-index' in config_data:
@@ -124,19 +124,21 @@ def create_wireless_config(wlan_mac_addr, config_data):
             else:
                 wep_index = 0
             wireless_config['802-11-wireless-security'] = dbus.Dictionary({
-                b'key-mgmt' : b'none',
-                b'wep-key-type' : 1, # Hexadecimal key
-                'wep-key{}'.format(wep_index).encode() : config_data['wep-key'].encode()
+                dbus.String('key-mgmt') : dbus.String('none'),
+                dbus.String('wep-key-type') : 1, # Hexadecimal key
+                dbus.String('wep-key{}'.format(wep_index)) : config_data['wep-key'].encode()
             })
         elif 'eap' in config_data:
             wireless_config['802-11-wireless-security'] = dbus.Dictionary({
-                b'key-mgmt' : b'wpa-eap'
+                dbus.String('key-mgmt') : dbus.String('wpa-eap')
             })
             wireless_config['802-1x'] = dbus.Dictionary({
-                b'eap' : dbus.Array([config_data['eap']]),
-                b'identity' : config_data['identity'].encode(),
-                b'password' : config_data['password'].encode()})
-
+                dbus.String('eap') : dbus.Array([dbus.String(config_data['eap'])])
+            })
+            if 'identity' in config_data:
+                wireless_config['802-1x']['identity'] = config_data['identity'].encode()
+            if 'password' in config_data:
+                wireless_config['802-1x']['password'] = config_data['password'].encode()
             if 'fast' == config_data['eap']:
                 wireless_config['802-1x']['anonymous-identity'] = 'FAST-'+wlan_mac_addr
                 wireless_config['802-1x']['phase1-fast-provisioning'] = 3
@@ -147,18 +149,48 @@ def create_wireless_config(wlan_mac_addr, config_data):
 
         if config_data.get('disable-ipv6', False):
             wireless_config['ipv6'] = dbus.Dictionary({
-                b'method' : b'auto',
-                b'ignore-auto-dns' : True,
-                b'never-default' : True
+                dbus.String('method') : dbus.String('auto'),
+                dbus.String('ignore-auto-dns') : True,
+                dbus.String('never-default') : True
             })
-    except KeyError:
-        syslog('Invalid input configuration')
+    except KeyError as k:
+        syslog('Invalid input configuration: %s' % str(k))
         wireless_config = {}
     except Exception as e:
         syslog('Failed to create wireless config %s' % str(e))
         wireless_config = {}
 
     return wireless_config
+
+"""
+Update a NetworkManager wireless configuration
+"""
+def update_wireless_config(orig_config, new_config):
+    syslog("Updating wireless config with: " + str(new_config))
+
+    # Set priority from new configuration
+    if 'connection' in new_config and 'autoconnect-priority' in new_config['connection']:
+        orig_config['connection']['autoconnect-priority'] = new_config['connection']['autoconnect-priority']
+
+    # Merge IPv6 settings from new configuration
+    if 'ipv6' in new_config:
+        orig_config['ipv6'].update(new_config['ipv6'])
+
+    # Update security if the new configuration is different type or
+    # contains authentication
+    if '802-11-wireless-security' in new_config and 'key-mgmt' in new_config['802-11-wireless-security']:
+        if new_config['802-11-wireless-security']['key-mgmt'] != orig_config['802-11-wireless-security']['key-mgmt']:
+            # Different type, merge in new configuration
+            orig_config['802-11-wireless-security'].update(new_config['802-11-wireless-security'])
+            if '802-1x' in new_config:
+                orig_config['802-1x'] = new_config['802-1x']
+        elif 'psk' in new_config['802-11-wireless-security']:
+            # Update PSK
+            orig_config['802-11-wireless-security']['psk'] = new_config['802-11-wireless-security']['psk']
+        elif '802-1x' in new_config:
+            # Update EAP with new configuration
+            orig_config['802-1x'].update(new_config['802-1x'])
+    return orig_config
 
 def create_lte_conn(conn_name, ifname):
     return dbus.Dictionary({
@@ -514,8 +546,9 @@ class NetManager():
                 conn_iface = dbus.Interface(self.bus.get_object(NM_IFACE, conn),
                 'org.freedesktop.NetworkManager.Settings.Connection')
                 cur = conn_iface.GetSettings()
+                updated = update_wireless_config(cur, config)
                 config[NM_CONNECTION][NM_UUID] = cur['connection']['uuid']
-                conn_iface.Update(config)
+                conn_iface.Update(updated)
             else:
                 syslog(str(config))
                 conn = self.nm_settings.AddConnection(config)
@@ -540,8 +573,8 @@ class NetManager():
                     ret, conn = self.add_or_modify_connection(conn)
                     if not ret:
                         return False
-        except KeyError:
-            syslog('Invalid input configuration')
+        except KeyError as k:
+            syslog('Invalid input configuration: %s' % str(k))
             return False
         except Exception as e:
             syslog('Failed update configs %s' % str(e))
