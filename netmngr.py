@@ -73,6 +73,11 @@ PAC_FILE = b'/var/lib/private/autoP.pac'
 LTE_CONN_NAME = 'lte-connection'
 WWAN_DEV_NAME = 'usb0'
 LTE_ROUTE_METRIC = 700
+LTE_ROUTE_METRIC_HIGH = 500
+BYTES_IPV4 = b'ipv4'
+BYTES_IPV6 = b'ipv6'
+BYTES_ROUTE_METRIC = b'route-metric'
+PREFER_LTE = 'preferLTE'
 
 GET_AP_INTERMEDIATE_TIMEOUT = 2
 ACTIVATION_INTERMEDIATE_TIMEOUT = 5
@@ -192,8 +197,8 @@ def update_wireless_config(orig_config, new_config):
             orig_config['802-1x'].update(new_config['802-1x'])
     return orig_config
 
-def create_lte_conn(conn_name, ifname):
-    return dbus.Dictionary({
+def create_lte_conn(conn_name, ifname, prefer_lte=False):
+    lte_config = dbus.Dictionary({
         b'connection' : dbus.Dictionary({
             b'type' : b'802-3-ethernet',
             b'id' : conn_name.encode(),
@@ -211,6 +216,15 @@ def create_lte_conn(conn_name, ifname):
             b'route-metric' : LTE_ROUTE_METRIC,
             }),
     })
+    # Wi-fi profiles are always 600 so we'll modify the LTE profile metrics accordingly
+    if prefer_lte:
+        lte_config[BYTES_IPV4][BYTES_ROUTE_METRIC] = LTE_ROUTE_METRIC_HIGH
+        lte_config[BYTES_IPV6][BYTES_ROUTE_METRIC] = LTE_ROUTE_METRIC_HIGH
+    else:
+        lte_config[BYTES_IPV4][BYTES_ROUTE_METRIC] = LTE_ROUTE_METRIC
+        lte_config[BYTES_IPV6][BYTES_ROUTE_METRIC] = LTE_ROUTE_METRIC
+
+    return lte_config
 
 class NetManager():
     """Activation status codes
@@ -611,7 +625,6 @@ class NetManager():
 
         return True
 
-
     def is_lte_configured(self):
         return self.find_conn_by_id(LTE_CONN_NAME) is not None
 
@@ -678,8 +691,14 @@ class NetManager():
         self.activation_status = self.ACTIVATION_PENDING
         cb(self.activation_status)
         try:
+            self.remove_connection(LTE_CONN_NAME)
+            # If the connection exists, NM will remove the ip config, but will not
+            # renew unless the modem is brought down and back up again.
+            self.modem.SetProperty('Online', False)
             # Create auto-connection for WWAN Ethernet device
-            conn = create_lte_conn(LTE_CONN_NAME, WWAN_DEV_NAME)
+            prefer_lte = data.get(PREFER_LTE)
+            conn = create_lte_conn(LTE_CONN_NAME, WWAN_DEV_NAME, prefer_lte)
+
             self.new_conn_obj = self.nm_settings.AddConnection(conn)
             # Configure the connection (if not default)
             if apn or username or password:
