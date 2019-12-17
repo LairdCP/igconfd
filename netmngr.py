@@ -110,7 +110,7 @@ def create_wireless_config(wlan_mac_addr, config_data):
             dbus.String('802-11-wireless') : dbus.Dictionary({
                 dbus.String('mode') : dbus.String('infrastructure'),
                 dbus.String('ssid') : dbus.ByteArray(config_data['ssid'].encode()),
-                dbus.String('hidden') : True
+                dbus.String('hidden') : False
                 })
         })
         if 'psk' in config_data:
@@ -462,7 +462,8 @@ class NetManager():
             if '802-11-wireless-security' in nm_config:
                 if nm_config['802-11-wireless-security']['key-mgmt'] == 'wpa-eap':
                     config['eap'] = ''.join([str(b) for b in nm_config['802-1x']['eap']])
-                    config['phase2-auth']  = ''.join([str(b) for b in nm_config['802-1x']['phase2-auth']])
+                    if 'phase2-auth' in nm_config['802-1x']:
+                        config['phase2-auth']  = ''.join([str(b) for b in nm_config['802-1x']['phase2-auth']])
             if ('ipv6' in nm_config and
                 'ignore-auto-dns' in nm_config['ipv6'] and 'never-default' in nm_config['ipv6'] and
                 nm_config['ipv6']['ignore-auto-dns'] and nm_config['ipv6']['never-default']):
