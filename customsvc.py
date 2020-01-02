@@ -90,3 +90,5 @@ class CustomService(ConfigurationService):
             self.enable_ble_service()
             # Set message timeout callback to disable service after inactivity
             self.msg_manager.set_msg_timeout(BUTTON_PRESS_MSG_TIMEOUT_MS, self.stop)
+            # Make sure AP scan list gets updated
+            self.msg_manager.net_manager.start_ap_scan()

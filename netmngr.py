@@ -110,7 +110,7 @@ def create_wireless_config(wlan_mac_addr, config_data):
             dbus.String('802-11-wireless') : dbus.Dictionary({
                 dbus.String('mode') : dbus.String('infrastructure'),
                 dbus.String('ssid') : dbus.ByteArray(config_data['ssid'].encode()),
-                dbus.String('hidden') : False
+                dbus.String('hidden') : True
                 })
         })
         if 'psk' in config_data:
@@ -238,6 +238,8 @@ class NetManager():
             self.wifi_dev = dbus.Interface(self.wifi_dev_obj, NM_WIFI_DEVICE_IFACE)
             self.wifi_dev_props = dbus.Interface(self.wifi_dev_obj, DBUS_PROP_IFACE)
             self.ap_objs = None
+            self.in_full_scan = False
+            self.ap_scan_pending = True
             self.new_conn_obj = None
             self.connectivity = self.nm_props.Get(NM_IFACE, 'Connectivity')
             self.activated = False
@@ -277,6 +279,17 @@ class NetManager():
             if c.GetSettings()['connection']['id'] == conn_id:
                 return c_path
         return None
+
+    def start_ap_scan(self):
+        """Start a WiFi scan, include all APs
+        """
+        syslog('Starting full AP scan...')
+        try:
+            self.wifi_dev.RequestScan({'ssids':[dbus.ByteArray(''.encode())]})
+            self.in_full_scan = True
+        except dbus.exceptions.DBusException as e:
+            # Can fail if a scan was just performed, ignore
+            syslog('Attempt to start AP scan failed: {}'.format(e))
 
     def get_access_points(self, timeout=None, continue_scan=False):
         """ Scan for access points
@@ -337,20 +350,29 @@ class NetManager():
     def wifi_dev_props_changed(self, iface, props_changed, props_invalidated):
         """ Signal callback for change to the wlan0 device properties
         """
-        if props_changed and 'State' in props_changed:
-            syslog('WiFi state changed: {}'.format(props_changed['State']))
-            if props_changed['State'] == NM_DEVICE_STATE_ACTIVATED:
-                # Make sure this is our connection
-                active_conn_obj = self.wifi_dev_props.Get(NM_DEVICE_IFACE, 'ActiveConnection')
-                active_conn_props = dbus.Interface(self.bus.get_object(NM_IFACE, active_conn_obj), DBUS_PROP_IFACE)
-                conn_obj = active_conn_props.Get(NM_CONNECTION_ACTIVE_IFACE, 'Connection')
-                if conn_obj == self.new_conn_obj:
-                    self.activated = True
-                    syslog('New connection was activated!')
-                    if self.connectivity == NM_CONNECTIVITY_FULL:
-                        self.activation_status = self.ACTIVATION_SUCCESS
-            elif props_changed['State'] == NM_DEVICE_STATE_FAILED:
-                self.activation_status = self.ACTIVATION_FAILED_AUTH
+        if props_changed:
+            if 'State' in props_changed:
+                syslog('WiFi state changed: {}'.format(props_changed['State']))
+                if props_changed['State'] == NM_DEVICE_STATE_ACTIVATED:
+                    # Make sure this is our connection
+                    active_conn_obj = self.wifi_dev_props.Get(NM_DEVICE_IFACE, 'ActiveConnection')
+                    active_conn_props = dbus.Interface(self.bus.get_object(NM_IFACE, active_conn_obj), DBUS_PROP_IFACE)
+                    conn_obj = active_conn_props.Get(NM_CONNECTION_ACTIVE_IFACE, 'Connection')
+                    if conn_obj == self.new_conn_obj:
+                        self.activated = True
+                        syslog('New connection was activated!')
+                        if self.connectivity == NM_CONNECTIVITY_FULL:
+                            self.activation_status = self.ACTIVATION_SUCCESS
+                elif props_changed['State'] == NM_DEVICE_STATE_FAILED:
+                    self.activation_status = self.ACTIVATION_FAILED_AUTH
+            if 'LastScan' in props_changed:
+                if self.in_full_scan:
+                    self.in_full_scan = False
+                    syslog('Full AP scan complete.')
+                    if self.ap_scan_pending:
+                        # Start reading AP list, now that scan is complete
+                        self.ap_scan_pending = False
+                        self.ap_scan_tx_complete()
 
     def nm_props_changed(self, iface, props_changed, props_invalidated):
         """ Signal callback for change to Network Manager properties
@@ -425,8 +447,14 @@ class NetManager():
         """
         self.ap_first_scan = True
         self.ap_scanning = True
-        # Send response indicating request in progress, with TX complete callback to scan
-        self.response_cb(self.AP_SCANNING, tx_complete=self.ap_scan_tx_complete)
+        if self.in_full_scan:
+            # Need to wait for the AP scan to complete until sending the list,
+            # just send an intermediate response until scan is complete
+            self.ap_scan_pending = True
+            self.response_cb(self.AP_SCANNING)
+        else:
+            # Send response indicating request in progress, with TX complete callback to scan
+            self.response_cb(self.AP_SCANNING, tx_complete=self.ap_scan_tx_complete)
 
     def check_activation(self, cb):
         status = self.get_activation_status()
