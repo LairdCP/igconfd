@@ -61,7 +61,7 @@ class CustomService(ConfigurationService):
         syslog('Disabling BLE service.')
         self.disconnect_devices()
         self.device_svc.SetBLEState(BLE_STATE_INACTIVE)
-        self.deregister_le_services()
+        self.deregister_gatt_services()
         subprocess.call(['btmgmt', 'power', 'off'])
         return False
 
@@ -73,6 +73,8 @@ class CustomService(ConfigurationService):
             self.enable_ble_service()
 
     def stop(self):
+        # Unregister LE Advertisement
+        self.deregister_le_services()
         # Stop after a delay to allow last status message to be sent
         gobject.timeout_add(2000, self.disable_ble_service)
         # Stop message timeout callback
