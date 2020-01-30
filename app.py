@@ -236,5 +236,7 @@ class Application(dbus.service.Object):
     def deregister_le_services(self):
         syslog('Unregistering LE Advertisement Data...')
         self.advert_manager.UnregisterAdvertisement(self.le_adv_data.get_path())
+
+    def deregister_gatt_services(self):
         syslog('Unregistering GATT application...')
         self.gatt_manager.UnregisterApplication(self.get_path())
