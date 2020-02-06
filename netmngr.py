@@ -64,6 +64,7 @@ OFONO_MODEM_IFACE = 'org.ofono.Modem'
 OFONO_SIM_IFACE = 'org.ofono.SimManager'
 OFONO_CONNMAN_IFACE = 'org.ofono.ConnectionManager'
 OFONO_CONNECTION_IFACE = 'org.ofono.ConnectionContext'
+OFONO_NETREG_IFACE = 'org.ofono.NetworkRegistration'
 
 GEMALTO_MODEM_MODEL = 'PLS62-W'
 
@@ -268,6 +269,7 @@ class NetManager():
             self.modem_path = None
             self.modem_sim = None
             self.modem_connman = None
+            self.modem_netreg = None
             self.ofono = dbus.Interface(self.bus.get_object(OFONO_BUS_NAME, OFONO_ROOT_PATH), OFONO_MANAGER_IFACE)
             self.ofono.connect_to_signal('ModemAdded', self.modem_added)
         except dbus.DBusException:
@@ -629,7 +631,7 @@ class NetManager():
         return self.find_conn_by_id(LTE_CONN_NAME) is not None
 
     def is_modem_available(self):
-        return self.modem_present and self.modem_connman is not None
+        return self.modem_present
 
     def modem_added(self, object_path, properties):
         syslog('Modem added: {}'.format(object_path))
@@ -650,12 +652,24 @@ class NetManager():
                 self.modem.SetProperty('Online', True)
                 return
         if self.modem_present and name == 'Interfaces':
-            if OFONO_SIM_IFACE in value and not self.modem_sim:
-                self.modem_sim = dbus.Interface(self.bus.get_object(
-                    OFONO_BUS_NAME, self.modem_path), OFONO_SIM_IFACE)
-            if OFONO_CONNMAN_IFACE in value and not self.modem_connman:
-                self.modem_connman = dbus.Interface(self.bus.get_object(
-                    OFONO_BUS_NAME, self.modem_path), OFONO_CONNMAN_IFACE)
+            if OFONO_SIM_IFACE in value:
+                if self.modem_sim is None:
+                    self.modem_sim = dbus.Interface(self.bus.get_object(
+                        OFONO_BUS_NAME, self.modem_path), OFONO_SIM_IFACE)
+            elif self.modem_sim is not None:
+                self.modem_sim = None
+            if OFONO_CONNMAN_IFACE in value:
+                if self.modem_connman is None:
+                    self.modem_connman = dbus.Interface(self.bus.get_object(
+                        OFONO_BUS_NAME, self.modem_path), OFONO_CONNMAN_IFACE)
+            elif self.modem_connman is not None:
+                self.modem_connman = None
+            if OFONO_NETREG_IFACE in value:
+                if self.modem_netreg is None:
+                    self.modem_netreg = dbus.Interface(dbus.SystemBus().get_object(OFONO_BUS_NAME,
+                        self.modem_path), OFONO_NETREG_IFACE)
+            elif self.modem_netreg is not None:
+                self.modem_netreg = None
 
     def wwan_dev_props_changed(self, iface, props_changed, props_invalidated):
         """ Signal callback for change to the WWAN device properties
@@ -722,3 +736,41 @@ class NetManager():
         except dbus.exceptions.DBusException as e:
             syslog('Failed to create connection: {}'.format(e))
             cb(self.ACTIVATION_INVALID)
+
+    def req_get_lte_info(self):
+        if self.modem is not None:
+            lte_info = {}
+            modem_props = self.modem.GetProperties()
+            sim_props = self.modem_sim.GetProperties() if self.modem_sim else {}
+            lte_info['IMEI'] = modem_props.get('Serial', '')
+            lte_info['IMSI'] = sim_props.get('SubscriberIdentity', '')
+            lte_info['ICCID'] = sim_props.get('CardIdentifier', '')
+            lte_info['MCC'] = sim_props.get('MobileCountryCode', '')
+            lte_info['MNC'] = sim_props.get('MobileNetworkCode', '')
+            lte_info['Numbers'] = sim_props.get('SubscriberNumbers', [])[:]
+            return lte_info
+        else:
+            return None
+
+    def req_get_lte_status(self):
+        if self.modem is not None:
+            lte_status = {}
+            net_props = self.modem_netreg.GetProperties() if self.modem_netreg else {}
+            conn_props = self.modem_connman.GetProperties() if self.modem_connman else {}
+            lte_status['Operator'] = net_props.get('Name', '')
+            lte_status['Type'] = net_props.get('Technology', '')
+            lte_status['Strength'] = int(net_props.get('Strength', 0))
+            lte_status['MCC'] = net_props.get('MobileCountryCode', '')
+            lte_status['MNC'] = net_props.get('MobileNetworkCode', '')
+            lte_status['LAC'] = int(net_props.get('LocationAreaCode', -1))
+            lte_status['CID'] = int(net_props.get('CellId', -1))
+            lte_status['APN'] = ''
+            if self.modem_connman is not None:
+                ctxs = self.modem_connman.GetContexts()
+                if ctxs and len(ctxs) > 0:
+                    ctx = dbus.Interface(self.bus.get_object(
+                        OFONO_BUS_NAME, ctxs[0][0]), OFONO_CONNECTION_IFACE)
+                    lte_status['APN'] = ctx.GetProperties().get('AccessPointName', '')
+            return lte_status
+        else:
+            return None
