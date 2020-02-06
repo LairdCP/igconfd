@@ -22,7 +22,7 @@ MSG_TYPE = 'type'
 MSG_STATUS = 'status'
 MSG_DATA = 'data'
 
-MSG_VERSION_VAL = 2
+MSG_VERSION_VAL = 3
 
 MSG_ID_VERSION = 'version'
 MSG_ID_GET_DEVICE_ID = 'getDeviceId'
@@ -35,6 +35,8 @@ MSG_ID_PROVISION_URL = 'provisionURL'
 MSG_ID_GET_DEVICE_CAPS = 'getDeviceCaps'
 MSG_ID_GET_STORAGE_INFO = 'getStorageInfo'
 MSG_ID_EXT_STORAGE_SWAP = 'extStorageSwap'
+MSG_ID_GET_LTE_INFO = 'getLTEInfo'
+MSG_ID_GET_LTE_STATUS = 'getLTEStatus'
 
 MSG_STATUS_INTERMEDIATE = 1
 MSG_STATUS_SUCCESS = 0
@@ -67,10 +69,7 @@ STORAGE_FORMATTING = 'formatting'
 PROVISION_INTERMEDIATE_TIMEOUT = 2
 PROVISION_TIMER_MS = 500
 
-DEVICE_SVC_NAME = 'com.lairdtech.device.DeviceService'
-DEVICE_SVC_PATH = '/com/lairdtech/device/DeviceService'
 DBUS_PROP_IFACE = 'org.freedesktop.DBus.Properties'
-DEVICE_PUB_IFACE = 'com.lairdtech.device.public.DeviceInterface'
 EXT_STORAGE_STATUS_PROP = 'ExtStorageStatus'
 
 STORAGE_SWAP_TIMER_MS = 2000
@@ -180,10 +179,16 @@ class MessageManager():
                 self.handle_dev_manager_request(MSG_ID_GET_STORAGE_INFO, req_obj)
             elif msg_type == MSG_ID_EXT_STORAGE_SWAP:
                 self.handle_dev_manager_request(MSG_ID_EXT_STORAGE_SWAP, req_obj)
+            elif msg_type == MSG_ID_GET_LTE_INFO:
+                self.handle_net_manager_request(MSG_ID_GET_LTE_INFO, req_obj)
+            elif msg_type == MSG_ID_GET_LTE_STATUS:
+                self.handle_net_manager_request(MSG_ID_GET_LTE_STATUS, req_obj)
             else:
                 self.send_response(req_obj, MSG_STATUS_ERR_INVALID)
         except KeyError:
             syslog('Invalid request message, ignoring.')
+        except Exception as e:
+            syslog('Unexpected failure: {}'.format(e))
         # Exit timer
         return False
 
@@ -299,6 +304,18 @@ class MessageManager():
                 self.send_net_response(NetManager.ACTIVATION_SUCCESS, data=aps)
             else:
                 self.send_net_response(NetManager.ACTIVATION_FAILED_NETWORK)
+        elif msg_type == MSG_ID_GET_LTE_INFO:
+            lte_info = self.net_manager.req_get_lte_info()
+            if lte_info is not None:
+                self.send_response(self.cur_net_req_obj, MSG_STATUS_SUCCESS, lte_info)
+            else:
+                self.send_response(self.cur_net_req_obj, MSG_STATUS_ERR_INVALID)
+        elif msg_type == MSG_ID_GET_LTE_STATUS:
+            lte_status = self.net_manager.req_get_lte_status()
+            if lte_status is not None:
+                self.send_response(self.cur_net_req_obj, MSG_STATUS_SUCCESS, data=lte_status)
+            else:
+                self.send_response(self.cur_net_req_obj, MSG_STATUS_ERR_INVALID)
 
     def handle_prov_manager_request(self, msg_type, req_obj):
 
