@@ -94,11 +94,12 @@ def convert_dict_keys_values_to_string(data):
 class MessageManager():
     def __init__(self, shutdown_cb):
         self.prov_manager = ProvManager(self.send_prov_response)
-        self.dev_manager = DeviceManager(self.send_response)
+        self.dev_manager = DeviceManager(self.send_dev_response)
         self.net_manager = NetManager(self.send_net_response)
 
         self.shutdown_cb = shutdown_cb
-        self.cur_req_obj = None
+        self.cur_dev_storageinfo_req_obj = None
+        self.cur_dev_storageswap_req_obj = None
         self.msg_timeout_id = None
         self.msg_timeout_cb = None
         self.msg_timeout_delay = None
@@ -263,9 +264,8 @@ class MessageManager():
         else:
             self.send_response(self.cur_prov_req_obj, MSG_STATUS_INTERMEDIATE, data)
 
-    def send_dev_reponse(self, status, data=None):
-        self.send_response(self.cur_req_obj, status, data)
-        self.cur_req_obj = None
+    def send_dev_response(self, status, data=None):
+        self.send_response(self.cur_dev_storageswap_req_obj, status, data)
 
     """
     Request handlers for the various service managers
@@ -322,14 +322,15 @@ class MessageManager():
 
     def handle_dev_manager_request(self, msg_type, req_obj):
         if self.dev_manager.api_enabled:
-            self.cur_dev_req_obj = req_obj
 
             if msg_type == MSG_ID_GET_STORAGE_INFO:
+                self.cur_dev_storageinfo_req_obj = req_obj
                 storage_data = self.dev_manager.get_storage_data()
-                self.send_response(self.cur_dev_req_obj, MSG_STATUS_SUCCESS, data=storage_data)
+                self.send_response(self.cur_dev_storageinfo_req_obj, MSG_STATUS_SUCCESS, data=storage_data)
             elif msg_type == MSG_ID_EXT_STORAGE_SWAP:
+                self.cur_dev_storageswap_req_obj = req_obj
                 status, storage_data = self.dev_manager.do_storage_swap()
-                self.send_response(self.cur_dev_req_obj, status, data=storage_data)
+                self.send_response(self.cur_dev_storageswap_req_obj, status, data=storage_data)
         else:
             self.send_response(self.cur_dev_req_obj, MSG_STATUS_ERR_INVALID)
 

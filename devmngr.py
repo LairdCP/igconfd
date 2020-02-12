@@ -73,7 +73,7 @@ class DeviceManager():
             DEVICE_SVC_PATH), DBUS_PROP_IFACE)
             self.device_props.connect_to_signal('PropertiesChanged', self.dev_props_changed)
             self.device_svc = dbus.Interface(self.bus.get_object(DEVICE_SVC_NAME,
-                DEVICE_SVC_PATH), DEVICE_IFACE)
+                DEVICE_SVC_PATH), DEVICE_PUB_IFACE)
 
             self.id_swap_timer = None
             self.swap_status = None
