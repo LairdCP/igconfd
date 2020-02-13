@@ -105,6 +105,8 @@ class ProvManager():
         except KeyError:
             syslog('Invalid provisioning request data.')
             self.response_cb(self.PROV_FAILED_INVALID)
+            self._prov_state = self.PROV_FAILED_INVALID
+            return
 
         if self.is_provisioning():
             # Success, send actualt response
