@@ -333,8 +333,3 @@ class MessageManager():
                 self.send_response(self.cur_dev_storageswap_req_obj, status, data=storage_data)
         else:
             self.send_response(self.cur_dev_req_obj, MSG_STATUS_ERR_INVALID)
-
-
-
- 
- 
