@@ -99,7 +99,7 @@ the BLE input configuration data
 """
 def create_wireless_config(wlan_mac_addr, config_data):
     try:
-        syslog("Creating wireless config out of: " + str(config_data))
+        syslog("Creating wireless config for SSID: " + str(config_data['ssid']))
 
         priority = 0
         if 'priority' in config_data:
@@ -172,7 +172,7 @@ def create_wireless_config(wlan_mac_addr, config_data):
 Update a NetworkManager wireless configuration
 """
 def update_wireless_config(orig_config, new_config):
-    syslog("Updating wireless config with: " + str(new_config))
+    syslog("Updating wireless config for SSID: " + new_config['connection']['id'].decode())
 
     # Set priority from new configuration
     if 'connection' in new_config and 'autoconnect-priority' in new_config['connection']:
@@ -595,7 +595,7 @@ class NetManager():
                 config[NM_CONNECTION][NM_UUID] = cur['connection']['uuid']
                 conn_iface.Update(updated)
             else:
-                syslog(str(config))
+                syslog("Adding wireless config for SSID: " + config['connection']['id'].decode())
                 conn = self.nm_settings.AddConnection(config)
         except dbus.exceptions.DBusException as e:
             syslog('Failed to add or modify connection: {}'.format(e))
