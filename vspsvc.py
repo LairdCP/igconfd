@@ -17,6 +17,12 @@ UUID_VSP_SVC =         'be98076e-8e8d-11e8-9eb6-529269fb1459'
 UUID_VSP_RX =          'be980b1a-8e8d-11e8-9eb6-529269fb1459'
 UUID_VSP_TX =          'be980d72-8e8d-11e8-9eb6-529269fb1459'
 
+DBUS_OM_IFACE = 'org.freedesktop.DBus.ObjectManager'
+DBUS_PROP_IFACE = 'org.freedesktop.DBus.Properties'
+BLUEZ_SERVICE_NAME = 'org.bluez'
+ADAPTER_IFACE = 'org.bluez.Adapter1'
+BLUEZ_DEVICE_IFACE = 'org.bluez.Device1'
+
 MAX_TX_LEN = 16
 
 class VirtualSerialPortService(gattsvc.Service):
@@ -116,8 +122,30 @@ class VspTxCharacteristic(gattsvc.Characteristic):
         self.tx_complete = None
         self.tx_mutex.release()
 
+    def find_objs_by_iface(self, iface):
+        found_objs = []
+        remote_om = dbus.Interface(self.bus.get_object(BLUEZ_SERVICE_NAME, '/'),
+            DBUS_OM_IFACE)
+        objects = remote_om.GetManagedObjects()
+        for o, props in objects.items():
+            if iface in props.keys():
+                found_objs.append(o)
+        return found_objs
+
     def StartNotify(self):
         syslog('GATT client subscribed to Tx.')
+        device_objs = self.find_objs_by_iface(BLUEZ_DEVICE_IFACE)
+        for d in device_objs:
+            try:
+                syslog('Found device: {}'.format(d))
+                dev = dbus.Interface(self.bus.get_object(BLUEZ_SERVICE_NAME,
+                    d), BLUEZ_DEVICE_IFACE)
+                dev_props = dbus.Interface(self.bus.get_object(BLUEZ_SERVICE_NAME,
+                    d), DBUS_PROP_IFACE)
+                if dev_props.Get(BLUEZ_DEVICE_IFACE, 'Connected'):
+                    syslog('connected device {}'.format(dev_props.Get(BLUEZ_DEVICE_IFACE, 'Address')))
+            except dbus.exceptions.DBusException as e:
+                syslog("igconfd: connect_devices: %s" % e)
 
     def StopNotify(self):
         syslog('GATT client unsubscribed from Tx.')
