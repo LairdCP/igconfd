@@ -1,6 +1,7 @@
 import dbus, dbus.service, dbus.exceptions
 import json
 import time
+import requests, requests.exceptions
 
 from netmngr import NetManager
 from provmngr import ProvManager
@@ -37,6 +38,7 @@ MSG_ID_GET_STORAGE_INFO = 'getStorageInfo'
 MSG_ID_EXT_STORAGE_SWAP = 'extStorageSwap'
 MSG_ID_GET_LTE_INFO = 'getLTEInfo'
 MSG_ID_GET_LTE_STATUS = 'getLTEStatus'
+MSG_ID_CONN_CHECK = 'connCheck'
 
 MSG_STATUS_INTERMEDIATE = 1
 MSG_STATUS_SUCCESS = 0
@@ -183,6 +185,8 @@ class MessageManager():
                 self.handle_net_manager_request(MSG_ID_GET_LTE_INFO, req_obj)
             elif msg_type == MSG_ID_GET_LTE_STATUS:
                 self.handle_net_manager_request(MSG_ID_GET_LTE_STATUS, req_obj)
+            elif msg_type == MSG_ID_CONN_CHECK:
+                self.req_conn_check(req_obj)
             else:
                 self.send_response(req_obj, MSG_STATUS_ERR_INVALID)
         except KeyError:
@@ -219,6 +223,29 @@ class MessageManager():
             cap_data.setdefault('deviceCaps', []).append('connectLTE')
 
         self.send_response(req_obj, MSG_STATUS_SUCCESS, data=cap_data)
+
+    def req_conn_check(self, req_obj):
+        """Handle Connectivity Check Request
+        """
+        try:
+            url = req_obj['data']['url']
+            check_timeout = float(req_obj['data']['timeout'])
+            syslog('Performing connectivity check on {} with timeout {}'.format(url, check_timeout))
+            r = requests.get(url, timeout = check_timeout)
+            resp_data = {}
+            resp_data['result'] = r.status_code
+            resp_data['len'] = len(r.content or '')
+            self.send_response(req_obj, MSG_STATUS_SUCCESS, data = resp_data)
+        except requests.exceptions.Timeout as e:
+            self.send_response(req_obj, MSG_STATUS_ERR_TIMEOUT)
+        except requests.exceptions.ConnectionError as e:
+            self.send_response(req_obj, MSG_STATUS_ERR_NOCONN)
+        except (requests.exceptions.RequestException, KeyError, ValueError) as e:
+            # Invalid request
+            self.send_response(req_obj, MSG_STATUS_ERR_INVALID)
+        except:
+            # Hmmm, something else went wrong
+            self.send_response(req_obj, MSG_STATUS_ERR_UNKNOWN)
 
     """
     Response callbacks for the various service managers
