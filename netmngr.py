@@ -576,8 +576,12 @@ class NetManager():
     def remove_connection(self,id):
         try:
             conn = self.find_conn_by_id(id)
-            if conn != None:
-                conn.Delete()
+            if conn == None:
+                return False
+            if "Wired connection" in conn.GetSettings()['connection']['id']:
+                syslog('Failed to delete wired connection')
+                return False
+            conn.Delete()
         except dbus.exceptions.DBusException as e:
             syslog('Failed to delete connection: {}'.format(e))
             return False
