@@ -200,7 +200,8 @@ class MessageManager():
             ver_raw = f.read()
         version = ver_raw.rstrip().split(' ')[-1]
         id_data = { 'deviceId' : self.net_manager.get_wlan_hw_address(),
-            'name' : 'Laird Sentrius IG60', 'version' : version}
+            'name' : 'Laird Sentrius IG60', 'devType' : int(self.dev_manager.get_device_type()),
+            'version' : version}
         self.send_response(req_obj, MSG_STATUS_SUCCESS, data=id_data)
 
     def req_get_device_caps(self, req_obj):
