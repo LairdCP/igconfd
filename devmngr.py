@@ -199,3 +199,6 @@ class DeviceManager():
         # Set timer task to check status & send intermediate responses
         self.id_swap_timer = gobject.timeout_add(STORAGE_SWAP_TIMER_MS,
             self.storage_swap_cb)
+
+    def get_device_type(self):
+        return self.device_svc.Identify()
