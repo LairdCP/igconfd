@@ -74,6 +74,10 @@ PROVISION_TIMER_MS = 500
 DBUS_PROP_IFACE = 'org.freedesktop.DBus.Properties'
 EXT_STORAGE_STATUS_PROP = 'ExtStorageStatus'
 
+DBUS_OM_IFACE = 'org.freedesktop.DBus.ObjectManager'
+BLUEZ_SERVICE_NAME = 'org.bluez'
+ADAPTER_IFACE = 'org.bluez.Adapter1'
+
 STORAGE_SWAP_TIMER_MS = 2000
 
 def convert_dict_keys_values_to_string(data):
@@ -104,6 +108,10 @@ class MessageManager():
         self.msg_timeout_id = None
         self.msg_timeout_cb = None
         self.msg_timeout_delay = None
+
+        self.bus = dbus.SystemBus()
+        self.bluez_dev_obj = self.bus.get_object(BLUEZ_SERVICE_NAME, self.find_obj_by_iface(ADAPTER_IFACE))
+        self.bluez_dev_props = dbus.Interface(self.bluez_dev_obj, DBUS_PROP_IFACE)
 
     def start(self, tx_msg):
         self.tx_msg = tx_msg
@@ -203,8 +211,12 @@ class MessageManager():
         with open('/etc/laird-release', 'r') as f:
             ver_raw = f.read()
         version = ver_raw.rstrip().split(' ')[-1]
+
+        # Read Name from bluez dbus object
+        name = str(self.bluez_dev_props.Get(ADAPTER_IFACE, "Name"))
+
         id_data = { 'deviceId' : self.net_manager.get_wlan_hw_address(),
-            'name' : 'Laird Sentrius IG60', 'devType' : int(self.dev_manager.get_device_type()),
+            'name' : name, 'devType' : int(self.dev_manager.get_device_type()),
             'version' : version}
         self.send_response(req_obj, MSG_STATUS_SUCCESS, data=id_data)
 
@@ -378,3 +390,12 @@ class MessageManager():
                 self.send_response(self.cur_dev_storageswap_req_obj, status, data=storage_data)
         else:
             self.send_response(self.cur_dev_req_obj, MSG_STATUS_ERR_INVALID)
+
+    def find_obj_by_iface(self, iface):
+        remote_om = dbus.Interface(self.bus.get_object(BLUEZ_SERVICE_NAME, '/'),
+            DBUS_OM_IFACE)
+        objects = remote_om.GetManagedObjects()
+        for o, props in objects.items():
+            if iface in props.keys():
+                return o
+        return None
