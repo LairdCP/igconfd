@@ -73,7 +73,7 @@ class Application(dbus.service.Object):
     def add_service(self, service):
         self.services.append(service)
 
-    @dbus.service.signal("com.lairdtech.security.public.ConfigInterface", signature='i')
+    @dbus.service.signal("com.lairdtech.security.ConfigInterface", signature='i')
     def LTEStatusChanged(self, status):
         """
            Provides the status of the LTE connection
@@ -81,7 +81,7 @@ class Application(dbus.service.Object):
         syslog("configsvc: lte status changed: %d" % status)
         return status
 
-    @dbus.service.method("com.lairdtech.security.public.ConfigInterface",
+    @dbus.service.method("com.lairdtech.security.ConfigInterface",
                          in_signature='s', out_signature='i')
     def ConnectLTE(self, config):
         try:
@@ -93,7 +93,7 @@ class Application(dbus.service.Object):
         self.msg_manager.net_manager.req_connect_lte(lte_config, self.LTEStatusChanged)
         return 0
 
-    @dbus.service.method("com.lairdtech.security.public.ConfigInterface",
+    @dbus.service.method("com.lairdtech.security.ConfigInterface",
                          in_signature='s', out_signature='i')
     def SetWifiConfigurations(self, config):
         try:
