@@ -159,6 +159,12 @@ def create_wireless_config(wlan_mac_addr, config_data):
                 dbus.String('ignore-auto-dns') : True,
                 dbus.String('never-default') : True
             })
+        else:
+            wireless_config['ipv6'] = dbus.Dictionary({
+                 dbus.String('method') : dbus.String('auto'),
+                 dbus.String('ignore-auto-dns') : False,
+                 dbus.String('never-default') : False
+             })
     except KeyError as k:
         syslog('Invalid input configuration: %s' % str(k))
         wireless_config = {}
