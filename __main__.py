@@ -19,6 +19,7 @@ else:
 
 DEVICE_IG60 = "Laird IG60"
 PROC_DEVICE_TREE_MODEL = '/proc/device-tree/model'
+CONFIG_FILE = '/etc/ig60config'
 
 def main():
 
@@ -38,9 +39,17 @@ def main():
         syslog('failed to write value {} to path {}'.format(model, PROC_DEVICE_TREE_MODEL))
         return 1
 
+    try:
+        with open(CONFIG_FILE,"r") as f:
+            config = f.readline()
+            config = config.rstrip('\n')
+            f.close()
+    except IOError as e:
+        syslog('failed to read value of {}'.format(CONFIG_FILE))
+
     manager = None
-    if DEVICE_IG60 == model:
-        manager = customsvc.CustomService(DEVICE_IG60)
+    if config is not None:
+        manager = customsvc.CustomService(config)
     else:
         manager = configsvc.ConfigurationService(model)
 
