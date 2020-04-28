@@ -39,6 +39,7 @@ def main():
         syslog('failed to write value {} to path {}'.format(model, PROC_DEVICE_TREE_MODEL))
         return 1
 
+    config = None
     try:
         with open(CONFIG_FILE,"r") as f:
             config = f.readline()
