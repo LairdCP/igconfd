@@ -23,7 +23,7 @@ MSG_TYPE = 'type'
 MSG_STATUS = 'status'
 MSG_DATA = 'data'
 
-MSG_VERSION_VAL = 3
+MSG_VERSION_VAL = 4
 
 MSG_ID_VERSION = 'version'
 MSG_ID_GET_DEVICE_ID = 'getDeviceId'
@@ -39,6 +39,8 @@ MSG_ID_EXT_STORAGE_SWAP = 'extStorageSwap'
 MSG_ID_GET_LTE_INFO = 'getLTEInfo'
 MSG_ID_GET_LTE_STATUS = 'getLTEStatus'
 MSG_ID_CONN_CHECK = 'connCheck'
+MSG_ID_UPDATE_CONFIG = 'updateConfig'
+MSG_ID_CHECK_UPDATE = 'checkUpdate'
 
 MSG_STATUS_INTERMEDIATE = 1
 MSG_STATUS_SUCCESS = 0
@@ -77,6 +79,11 @@ EXT_STORAGE_STATUS_PROP = 'ExtStorageStatus'
 DBUS_OM_IFACE = 'org.freedesktop.DBus.ObjectManager'
 BLUEZ_SERVICE_NAME = 'org.bluez'
 ADAPTER_IFACE = 'org.bluez.Adapter1'
+
+UPDATE_SVC = 'com.lairdtech.security.UpdateService'
+UPDATE_PATH = '/com/lairdtech/security/UpdateService'
+UPDATE_IFACE = 'com.lairdtech.security.UpdateInterface'
+UPDATE_PUBLIC_IFACE = 'com.lairdtech.security.public.UpdateInterface'
 
 STORAGE_SWAP_TIMER_MS = 2000
 
@@ -195,6 +202,10 @@ class MessageManager():
                 self.handle_net_manager_request(MSG_ID_GET_LTE_STATUS, req_obj)
             elif msg_type == MSG_ID_CONN_CHECK:
                 self.req_conn_check(req_obj)
+            elif msg_type == MSG_ID_UPDATE_CONFIG:
+                self.req_update_config(req_obj)
+            elif msg_type == MSG_ID_CHECK_UPDATE:
+                self.req_check_update(req_obj)
             else:
                 self.send_response(req_obj, MSG_STATUS_ERR_INVALID)
         except KeyError:
@@ -399,3 +410,34 @@ class MessageManager():
             if iface in props.keys():
                 return o
         return None
+
+    def req_update_config(self, req_obj):
+        try:
+            updatesvc = dbus.Interface(self.bus.get_object(UPDATE_SVC, UPDATE_PATH), UPDATE_IFACE)
+            ret = int(updatesvc.SetConfiguration(json.dumps(req_obj['data'])))
+            if ret == 0:
+                syslog('Update request success.')
+                self.send_response(req_obj, MSG_STATUS_SUCCESS)
+            else:
+                syslog('Update request failed.')
+                self.send_response(req_obj, MSG_STATUS_ERR_INVALID)
+        except dbus.DBusException:
+            syslog('Failed to connect to the Update service.')
+            self.send_response(req_obj, MSG_STATUS_ERR_INVALID)
+        except (KeyError, ValueError, TypeError) as e:
+            # Invalid request
+            syslog('Invalid update request.')
+            self.send_response(req_obj, MSG_STATUS_ERR_INVALID)
+        except:
+            # Hmmm, something else went wrong
+            self.send_response(req_obj, MSG_STATUS_ERR_UNKNOWN)
+
+    def req_check_update(self, req_obj):
+        try:
+            updatesvc = dbus.Interface(self.bus.get_object(UPDATE_SVC, UPDATE_PATH), UPDATE_PUBLIC_IFACE)
+            ret = int(updatesvc.CheckUpdate(False))
+            syslog('Update check status: {}'.format(ret))
+            self.send_response(req_obj, MSG_STATUS_SUCCESS, data={ 'updateStatus' : ret })
+        except:
+            # Hmmm, something went wrong
+            self.send_response(req_obj, MSG_STATUS_ERR_UNKNOWN)
