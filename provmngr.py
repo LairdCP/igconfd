@@ -70,7 +70,7 @@ class ProvManager():
     def is_provisioning(self):
         if self._prov_state == self.PROV_UNPROVISIONED or \
             self._prov_state == self.PROV_INPROGRESS_DOWNLOADING or \
-            self._prov_state == self.PROV_INPROGRESS_APPLYING: 
+            self._prov_state == self.PROV_INPROGRESS_APPLYING:
             return True
         else:
             return False
@@ -91,11 +91,14 @@ class ProvManager():
         elif not ret:
             self.response_cb(self._prov_state)
 
-        return ret  
+        return ret
 
     def start_provisioning(self, prov_data):
 
         syslog('Starting provisioning.')
+        if self._prov_state == self.PROV_INPROGRESS_DOWNLOADING or \
+            self._prov_state == self.PROV_INPROGRESS_APPLYING:
+            return
         try:
             status = self.prov.StartProvisioning(prov_data['url'].encode(),
                 { 'username' : prov_data['username'].encode(),
