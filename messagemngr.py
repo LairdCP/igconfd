@@ -219,9 +219,11 @@ class MessageManager():
         """Handle Get Device ID request
         """
         # Read version as last string in release file line
-        with open('/etc/laird-release', 'r') as f:
-            ver_raw = f.read()
-        version = ver_raw.rstrip().split(' ')[-1]
+        with open('/etc/os-release', 'r') as f:
+            for line in f:
+                if "VERSION_ID" in line:
+                    version = line.rstrip().split('=')[-1]
+                    break
 
         # Read Name from bluez dbus object
         name = str(self.bluez_dev_props.Get(ADAPTER_IFACE, "Name"))
