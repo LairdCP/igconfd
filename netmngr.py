@@ -112,6 +112,7 @@ def create_wireless_config(wlan_mac_addr, config_data):
                 dbus.String('autoconnect') : True,
                 dbus.String('autoconnect-priority') : priority,
                 dbus.String('autoconnect-retries') : 0,
+                dbus.String('auth-retries'): 0,
                 dbus.String('interface-name') : dbus.String('wlan0')
                 }),
             dbus.String('802-11-wireless') : dbus.Dictionary({
