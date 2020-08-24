@@ -201,4 +201,8 @@ class DeviceManager():
             self.storage_swap_cb)
 
     def get_device_type(self):
-        return self.device_svc.Identify()
+        if self.api_enabled == True:
+            return self.device_svc.Identify()
+        else:
+            syslog('self.device_svc is none')
+            return '0'
