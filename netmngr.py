@@ -714,6 +714,7 @@ class NetManager():
         apn = data.get('apn')
         username = data.get('username')
         password = data.get('password')
+        roaming = data.get('roaming', False)
         self.activation_status = self.ACTIVATION_PENDING
         cb(self.activation_status)
         try:
@@ -738,6 +739,9 @@ class NetManager():
                     default_ctx.SetProperty('Username', username)
                 if password:
                     default_ctx.SetProperty('Password', password)
+            # Set roaming
+            syslog('Setting RoamingAllowed to {}'.format(roaming))
+            self.modem_connman.SetProperty('RoamingAllowed', roaming)
             # Set the modem online
             syslog('Attempting to bring up LTE connection.')
             self.modem.SetProperty('Online', True)
