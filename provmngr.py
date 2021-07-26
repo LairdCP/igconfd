@@ -44,10 +44,13 @@ class ProvManager():
             self.prov_props = dbus.Interface(bus.get_object(PROV_SVC, PROV_OBJ), DBUS_PROP_IFACE)
             self.prov.connect_to_signal('StateChanged', self.prov_state_changed)
             self._prov_state = self.prov_props.Get(PROV_IFACE, 'Status')
+            self._greengrass_prov_state = self.prov_props.Get(PROV_IFACE, 'GreengrassProvisioned')
+            self._edgeiq_prov_state = self.prov_props.Get(PROV_IFACE, 'EdgeIQProvisioned')
             self.response_cb = response_cb
 
             # Disabled the API if provisioning is complete or there is no Provisioning Service
-            if self._prov_state == self.PROV_COMPLETE_SUCCESS:
+            if self._prov_state == self.PROV_COMPLETE_SUCCESS and \
+                self._greengrass_prov_state == True:
                 self.api_enabled = False
             else:
                 self.api_enabled = True
@@ -55,7 +58,8 @@ class ProvManager():
             self.api_enabled = False
 
     def is_provisioned(self):
-        return self._prov_state == self.PROV_COMPLETE_SUCCESS
+        return self._prov_state == self.PROV_COMPLETE_SUCCESS and \
+                self._greengrass_prov_state == True
 
     def disable_api(self):
         self.api_enabled = False
