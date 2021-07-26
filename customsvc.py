@@ -48,6 +48,8 @@ class CustomService(ConfigurationService):
         self.prov_props = dbus.Interface(self.bus.get_object(PROV_SVC, PROV_OBJ), DBUS_PROP_IFACE)
         self.prov.connect_to_signal('StateChanged', self.prov_state_changed)
         self.prov_state = self.prov_props.Get(PROV_IFACE, 'Status')
+        self.greengrass_prov_state = self.prov_props.Get(PROV_IFACE, 'GreengrassProvisioned')
+        self.edge_iq_prov_state = self.prov_props.Get(PROV_IFACE, 'EdgeIQProvisioned')
         # Request the device service to turn on the LTE modem (if present)
         self.device_svc.LTE_On()
 
@@ -66,7 +68,7 @@ class CustomService(ConfigurationService):
         return False
 
     def start(self):
-        if self.prov_state == PROV_COMPLETE_SUCCESS:
+        if self.greengrass_prov_state or self.edge_iq_prov_state:
             syslog('Device is provisioned, skipping BLE service.')
         else:
             syslog('Device is not provisioned, starting BLE service...')
@@ -87,7 +89,7 @@ class CustomService(ConfigurationService):
 
     def config_button_press(self, press_type):
         # If button is pressed (short) and already provisioned, enable service
-        if press_type == BUTTON_PRESS_SHORT and self.prov_state == PROV_COMPLETE_SUCCESS:
+        if press_type == BUTTON_PRESS_SHORT and (self.greengrass_prov_state or self.edge_iq_prov_state):
             syslog('Config button pressed, enabling BLE service.')
             self.enable_ble_service()
             # Set message timeout callback to disable service after inactivity
