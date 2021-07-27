@@ -303,7 +303,12 @@ class MessageManager():
         if status == ProvManager.PROV_COMPLETE_SUCCESS:
             # Shutdown provisioning service and disabled the api
             self.send_response(self.cur_prov_req_obj, MSG_STATUS_SUCCESS)
-            self.prov_manager.disable_api()
+
+            # Only disable the API if Greengrass was just provisioned (leave it
+            # enabled for Edge IQ)
+            if self.prov_manager.get_greengrass_prov_state == True:
+                self.prov_manager.disable_api()
+
             self.shutdown_cb()
         elif status == ProvManager.PROV_FAILED_AUTH:
             self.send_response(self.cur_prov_req_obj, MSG_STATUS_ERR_AUTH)
