@@ -84,6 +84,13 @@ class CustomService(ConfigurationService):
 
     def prov_state_changed(self, state):
         self.prov_state = state
+
+        # Update the provisioned state
+        self.greengrass_prov_state = self.prov_props.Get(PROV_IFACE, 'GreengrassProvisioned')
+        self.edge_iq_prov_state = self.prov_props.Get(PROV_IFACE, 'EdgeIQProvisioned')
+        syslog('Greengrass provisioned state = %s' % str(self.greengrass_prov_state))
+        syslog('EdgeIQ provisioned state = %s' % str(self.edge_iq_prov_state))
+
         if state == PROV_COMPLETE_SUCCESS:
             self.stop()
 

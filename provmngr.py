@@ -67,9 +67,17 @@ class ProvManager():
     def prov_state_changed(self, state):
         syslog('Provisioning state changed: {}'.format(state))
         self._prov_state = state
+        self._greengrass_prov_state = self.prov_props.Get(PROV_IFACE, 'GreengrassProvisioned')
+        self._edgeiq_prov_state = self.prov_props.Get(PROV_IFACE, 'EdgeIQProvisioned')
 
     def get_prov_state(self):
         return self._prov_state
+
+    def get_greengrass_prov_state(self):
+        return self._greengrass_prov_state
+
+    def get_edgeiq_prov_state(self):
+        return self._edgeiq_prov_state
 
     def is_provisioning(self):
         if self._prov_state == self.PROV_UNPROVISIONED or \
