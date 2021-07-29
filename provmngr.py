@@ -21,6 +21,8 @@ DBUS_PROP_IFACE = 'org.freedesktop.DBus.Properties'
 PROVISION_INTERMEDIATE_TIMEOUT = 2
 PROVISION_TIMER_MS = 500
 
+EDGEIQ_URL = 'http://api.edgeiq.io/'
+
 class ProvManager():
     """
     Provisioning States - these must match the IG Provisioning Service
@@ -112,9 +114,39 @@ class ProvManager():
             self._prov_state == self.PROV_INPROGRESS_APPLYING:
             return
         try:
+            if 'username' in prov_data and 'password' in prov_data:
+                auth_params = { 'username' : prov_data['username'].encode(),
+                  'password' : prov_data['password'].encode() }
+            else:
+                auth_params = {}
             status = self.prov.StartProvisioning(prov_data['url'].encode(),
-                { 'username' : prov_data['username'].encode(),
-                  'password' : prov_data['password'].encode() } )
+                 auth_params)
+            self.response_cb(status)
+            self._prov_state = status
+        except KeyError:
+            syslog('Invalid provisioning request data.')
+            self.response_cb(self.PROV_FAILED_INVALID)
+            self._prov_state = self.PROV_FAILED_INVALID
+            return
+
+        if self.is_provisioning():
+            # Success, send actualt response
+            self.response_cb(self.PROV_UNPROVISIONED, {'operation' : 'connect'})
+            # Set timer task to check status & sent intermediate responses
+            self.provision_msg_time = time.time()
+            gobject.timeout_add(PROVISION_TIMER_MS, self.check_provision)
+        else:
+            self.response_cb(self.PROV_FAILED_CONNECT)
+
+    def start_provisioning_edge(self, prov_data):
+        syslog('Starting provisioning Edge.')
+        if self._prov_state == self.PROV_INPROGRESS_DOWNLOADING or \
+            self._prov_state == self.PROV_INPROGRESS_APPLYING:
+            return
+        try:
+            # Construct special EdgeIQ "url"
+            url = EDGEIQ_URL + prov_data['company']
+            status = self.prov.StartProvisioning(url.encode(), {})
             self.response_cb(status)
             self._prov_state = status
         except KeyError:

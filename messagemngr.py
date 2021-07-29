@@ -33,6 +33,7 @@ MSG_ID_UPDATE_APS = 'updateAPS'
 MSG_ID_GET_CURRENT_APS = 'getAPS'
 MSG_ID_CONNECT_LTE = 'connectLTE'
 MSG_ID_PROVISION_URL = 'provisionURL'
+MSG_ID_PROVISION_EDGE = 'provisionEdge'
 MSG_ID_GET_DEVICE_CAPS = 'getDeviceCaps'
 MSG_ID_GET_STORAGE_INFO = 'getStorageInfo'
 MSG_ID_EXT_STORAGE_SWAP = 'extStorageSwap'
@@ -192,6 +193,8 @@ class MessageManager():
                 self.handle_net_manager_request(MSG_ID_CONNECT_LTE, req_obj)
             elif msg_type == MSG_ID_PROVISION_URL:
                 self.handle_prov_manager_request(MSG_ID_PROVISION_URL, req_obj)
+            elif msg_type == MSG_ID_PROVISION_EDGE:
+                self.handle_prov_manager_request(MSG_ID_PROVISION_EDGE, req_obj)
             elif msg_type == MSG_ID_GET_STORAGE_INFO:
                 self.handle_dev_manager_request(MSG_ID_GET_STORAGE_INFO, req_obj)
             elif msg_type == MSG_ID_EXT_STORAGE_SWAP:
@@ -392,6 +395,8 @@ class MessageManager():
                     self.net_manager.req_connect_lte({}, self.lte_autoconnect_status)
                 else:
                     self.prov_manager.start_provisioning(convert_dict_keys_values_to_string(req_obj['data']))
+            elif msg_type == MSG_ID_PROVISION_EDGE and 'data' in req_obj:
+                self.prov_manager.start_provisioning_edge(convert_dict_keys_values_to_string(req_obj['data']))
         else:
             self.send_prov_response(MSG_STATUS_ERR_INVALID, self.cur_prov_req_obj)
 
