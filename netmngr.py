@@ -332,9 +332,10 @@ class NetManager():
             ap_obj = self.ap_objs.pop(0)
             try:
                 ap_props = dbus.Interface(self.bus.get_object(NM_IFACE, ap_obj), DBUS_PROP_IFACE)
-                ssid = ''.join([chr(b) for b in ap_props.Get(NM_AP_IFACE, 'Ssid')])
+                # Properly decode UTF-8 bytes into a string (Unicode)
+                ssid = bytearray(ap_props.Get(NM_AP_IFACE, 'Ssid')).decode('utf-8')
                 ap_dict.setdefault(ssid, {})['ssid'] = ssid
-                ap_dict[ssid]['ssid'] = ''.join([chr(b) for b in ap_props.Get(NM_AP_IFACE, 'Ssid')])
+                ap_dict[ssid]['ssid'] = ssid
                 ap_dict[ssid]['strength'] = int(ap_props.Get(NM_AP_IFACE, 'Strength'))
                 ap_flags = int(ap_props.Get(NM_AP_IFACE, 'Flags'))
                 ap_wpa_flags = int(ap_props.Get(NM_AP_IFACE, 'WpaFlags'))
@@ -607,7 +608,7 @@ class NetManager():
                 config[NM_CONNECTION][NM_UUID] = cur['connection']['uuid']
                 conn_iface.Update(updated)
             else:
-                syslog("Adding wireless config for SSID: " + config['connection']['id'].decode())
+                syslog("Adding wireless config for SSID: " + config['connection']['id'].decode('utf-8'))
                 conn = self.nm_settings.AddConnection(config)
         except dbus.exceptions.DBusException as e:
             syslog('Failed to add or modify connection: {}'.format(e))
