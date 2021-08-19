@@ -72,6 +72,13 @@ class ProvManager():
         self._greengrass_prov_state = self.prov_props.Get(PROV_IFACE, 'GreengrassProvisioned')
         self._edgeiq_prov_state = self.prov_props.Get(PROV_IFACE, 'EdgeIQProvisioned')
 
+        # Disable the API if provisioning is complete or there is no Provisioning Service
+        if self._prov_state == self.PROV_COMPLETE_SUCCESS and \
+            self._greengrass_prov_state == True:
+            self.api_enabled = False
+        else:
+            self.api_enabled = True
+
     def get_prov_state(self):
         return self._prov_state
 
