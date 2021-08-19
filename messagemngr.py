@@ -340,7 +340,7 @@ class MessageManager():
         self.cur_net_req_obj = req_obj
 
         if self.prov_manager.api_enabled and self.prov_manager.is_provisioned():
-            self.send_prov_response(self.cur_net_req_obj, MSG_STATUS_ERR_INVALID)
+            self.send_response(self.cur_net_req_obj, MSG_STATUS_ERR_INVALID)
             return
 
         if msg_type == MSG_ID_GET_APS:
