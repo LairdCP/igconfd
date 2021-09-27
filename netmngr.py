@@ -5,6 +5,7 @@ netmngr - Network Manager functionality for the BLE configuration service
 import dbus, dbus.exceptions
 from syslog import syslog
 import time
+import os
 
 import sys
 PYTHON3 = sys.version_info >= (3, 0)
@@ -92,6 +93,8 @@ NM_UUID = 'uuid'
 
 CFG_PRIORITY = 'priority'
 CFG_SSID = 'ssid'
+
+AUTOCONF_LTE = '/etc/autoconf_lte'
 
 """
 Create a NetworkManager wireless configuration from
@@ -278,6 +281,7 @@ class NetManager():
             self.modem_sim = None
             self.modem_connman = None
             self.modem_netreg = None
+            self.autoconf_lte = False
             self.ofono = dbus.Interface(self.bus.get_object(OFONO_BUS_NAME, OFONO_ROOT_PATH), OFONO_MANAGER_IFACE)
             self.ofono.connect_to_signal('ModemAdded', self.modem_added)
         except dbus.DBusException:
@@ -643,8 +647,14 @@ class NetManager():
     def is_lte_configured(self):
         return self.find_conn_by_id(LTE_CONN_NAME) is not None
 
+    def is_lte_autoconf(self):
+        return os.path.exists(AUTOCONF_LTE)
+
     def is_modem_available(self):
         return self.modem_present
+
+    def autoconf_cb(self, obj):
+        pass
 
     def modem_added(self, object_path, properties):
         syslog('Modem added: {}'.format(object_path))
@@ -683,6 +693,13 @@ class NetManager():
                         self.modem_path), OFONO_NETREG_IFACE)
             elif self.modem_netreg is not None:
                 self.modem_netreg = None
+            # Check all interfaces are present and we should auto-configure
+            if (self.modem_present and not self.is_lte_configured() and
+                 not self.autoconf_lte and self.is_lte_autoconf() and
+                 self.modem_sim and self.modem_connman and self.modem_netreg):
+                syslog('Performing LTE autoconfiguration!')
+                self.autoconf_lte = True
+                self.req_connect_lte({}, self.autoconf_cb)
 
     def wwan_dev_props_changed(self, iface, props_changed, props_invalidated):
         """ Signal callback for change to the WWAN device properties
