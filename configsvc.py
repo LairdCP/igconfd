@@ -14,6 +14,7 @@ import vspsvc
 from app import Application
 from messagemngr import MessageManager
 from syslog import syslog
+from netstat import NetStat
 
 import sys
 PYTHON3 = sys.version_info >= (3, 0)
@@ -34,6 +35,7 @@ class ConfigurationService(Application):
 
         self.msg_manager.start(self.vsp_svc.tx)
         self.init_ble_service()
+        self.net_stat = NetStat(self.ConnectionStatsChanged)
 
     def start(self):
         syslog('Enabling BLE service.')

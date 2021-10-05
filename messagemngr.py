@@ -16,7 +16,7 @@ if PYTHON3:
 else:
     import gobject
 
-''' JSON Message Strings '''
+# JSON Message Strings
 MSG_VERSION = 'version'
 MSG_ID = 'id'
 MSG_TYPE = 'type'
@@ -275,9 +275,9 @@ class MessageManager():
             # Hmmm, something else went wrong
             self.send_response(req_obj, MSG_STATUS_ERR_UNKNOWN)
 
-    """
-    Response callbacks for the various service managers
-    """
+    #
+    # Response callbacks for the various service managers
+    #
     def send_net_response(self, status, data=None, tx_complete=None):
         if status == NetManager.ACTIVATION_SUCCESS or status == NetManager.AP_SCANNING_SUCCESS:
             self.send_response(self.cur_net_req_obj, MSG_STATUS_SUCCESS, data)
@@ -333,9 +333,9 @@ class MessageManager():
     def send_dev_response(self, status, data=None):
         self.send_response(self.cur_dev_storageswap_req_obj, status, data)
 
-    """
-    Request handlers for the various service managers
-    """
+    #
+    # Request handlers for the various service managers
+    # 
     def handle_net_manager_request(self, msg_type, req_obj):
         self.cur_net_req_obj = req_obj
 
