@@ -11,9 +11,7 @@ if PYTHON3:
 else:
     import gobject
 
-"""
-Status codes for MessageManager responses
-"""
+# Status codes for MessageManager responses
 MSG_STATUS_INTERMEDIATE = 1
 MSG_STATUS_SUCCESS = 0
 MSG_STATUS_ERR_INVALID = -1
@@ -24,18 +22,14 @@ MSG_STATUS_ERR_NOCONN = -5
 MSG_STATUS_ERR_DEVICE = -6
 MSG_STATUS_API_DISABLED = -7
 
-"""
-DBUS paths for the DeviceService
-"""
+# DBUS paths for the DeviceService
 DEVICE_SVC_NAME = 'com.lairdtech.device.DeviceService'
 DEVICE_SVC_PATH = '/com/lairdtech/device/DeviceService'
 DEVICE_IFACE = 'com.lairdtech.device.DeviceInterface'
 DBUS_PROP_IFACE = 'org.freedesktop.DBus.Properties'
 DEVICE_PUB_IFACE = 'com.lairdtech.device.public.DeviceInterface'
 
-"""
-Status codes from the Storage Service
-"""
+# Status codes from the Storage Service
 EXT_STORAGE_STATUS_FULL = -1
 EXT_STORAGE_STATUS_FAILED = -2
 EXT_STORAGE_STATUS_STOP_FAILED = -3
@@ -46,17 +40,13 @@ EXT_STORAGE_STATUS_FORMATTING = 3
 EXT_STORAGE_STATUS_STOPPING = 4
 EXT_STORAGE_STATUS_STOPPED = 5
 
-"""
-Swap Status codes
-"""
+# Swap Status codes
 STORAGE_EJECTING = 'ejecting'
 STORAGE_STOPPED = 'stopped'
 STORAGE_INSERTING = 'inserting'
 STORAGE_FORMATTING = 'formatting'
 
-"""
-Misc
-"""
+# Misc
 EXT_STORAGE_STATUS_PROP = 'ExtStorageStatus'
 STORAGE_SWAP_TIMER_MS = 2000
 

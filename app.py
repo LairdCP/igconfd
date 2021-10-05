@@ -81,6 +81,11 @@ class Application(dbus.service.Object):
         syslog("configsvc: lte status changed: %d" % status)
         return status
 
+    @dbus.service.signal("com.lairdtech.security.ConfigInterface", signature='s')
+    def ConnectionStatsChanged(self, connection_stats):
+        syslog("configsvc: connection stats changed")
+        return connection_stats
+
     @dbus.service.method("com.lairdtech.security.ConfigInterface",
                          in_signature='s', out_signature='i')
     def ConnectLTE(self, config):
