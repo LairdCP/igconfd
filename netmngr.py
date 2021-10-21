@@ -5,6 +5,7 @@ netmngr - Network Manager functionality for the BLE configuration service
 import dbus, dbus.exceptions
 from syslog import syslog
 import time
+import os
 
 import sys
 PYTHON3 = sys.version_info >= (3, 0)
@@ -14,7 +15,7 @@ else:
     import gobject
 
 
-''' Network Manager Device Connection States '''
+# Network Manager Device Connection States
 NM_DEVICE_STATE_UNKNOWN = 0
 NM_DEVICE_STATE_UNMANAGED = 10
 NM_DEVICE_STATE_UNAVAILABLE = 20
@@ -29,17 +30,17 @@ NM_DEVICE_STATE_ACTIVATED = 100
 NM_DEVICE_STATE_DEACTIVATING = 110
 NM_DEVICE_STATE_FAILED = 120
 
-''' Network Manager Connectivity States '''
+# Network Manager Connectivity States
 NM_CONNECTIVITY_UNKNOWN = 0
 NM_CONNECTIVITY_NONE = 1
 NM_CONNECTIVITY_PORTAL = 2
 NM_CONNECTIVITY_LIMITED = 3
 NM_CONNECTIVITY_FULL = 4
 
-''' Useful Network Manager AP Flags '''
+# Useful Network Manager AP Flags
 NM_802_11_AP_FLAGS_PRIVACY = 0x00000001
 
-''' Useful Network Manager AP Security Flags '''
+# Useful Network Manager AP Security Flags
 NM_802_11_AP_SEC_NONE            = 0x00000000
 NM_802_11_AP_SEC_PAIR_WEP40      = 0x00000001
 NM_802_11_AP_SEC_PAIR_WEP104     = 0x00000002
@@ -93,11 +94,13 @@ NM_UUID = 'uuid'
 CFG_PRIORITY = 'priority'
 CFG_SSID = 'ssid'
 
-"""
-Create a NetworkManager wireless configuration from
-the BLE input configuration data
-"""
+AUTOCONF_LTE = '/etc/autoconf_lte'
+
 def create_wireless_config(wlan_mac_addr, config_data):
+    """
+    Create a NetworkManager wireless configuration from
+    the BLE input configuration data
+    """
     try:
         syslog("Creating wireless config for SSID: " + str(config_data['ssid']))
 
@@ -176,10 +179,10 @@ def create_wireless_config(wlan_mac_addr, config_data):
 
     return wireless_config
 
-"""
-Update a NetworkManager wireless configuration
-"""
 def update_wireless_config(orig_config, new_config):
+    """
+    Update a NetworkManager wireless configuration
+    """
     syslog("Updating wireless config for SSID: " + new_config['connection']['id'].decode())
 
     # Set priority from new configuration
@@ -236,9 +239,7 @@ def create_lte_conn(conn_name, ifname, prefer_lte=False):
     return lte_config
 
 class NetManager():
-    """Activation status codes
-    """
-
+    # Activation status codes
     ACTIVATION_SUCCESS = 0
     ACTIVATION_PENDING = 1
     ACTIVATION_INVALID = -1
@@ -278,6 +279,7 @@ class NetManager():
             self.modem_sim = None
             self.modem_connman = None
             self.modem_netreg = None
+            self.autoconf_lte = False
             self.ofono = dbus.Interface(self.bus.get_object(OFONO_BUS_NAME, OFONO_ROOT_PATH), OFONO_MANAGER_IFACE)
             self.ofono.connect_to_signal('ModemAdded', self.modem_added)
         except dbus.DBusException:
@@ -430,17 +432,16 @@ class NetManager():
     def stop_scanning(self):
         self.ap_scanning = False
 
-    """
-    NOTE: For some reason, using the NetworkManager API to query each
-          AP object is very slow, so we process the AP list
-          in batches and send them to the client.  Also, reading the APs
-          causes the Tx on the BLE GATT characteristic to slow down,
-          which leads to long delays (timeouts) for the client.  So,
-          the code below implements a callback when the BLE Tx is
-          complete.  Thus we only process the AP list after the last
-          message was sent, then send the message once we've processed
-          the AP list; this ends up being more responsive to the client.
-    """
+    # NOTE: For some reason, using the NetworkManager API to query each
+    #      AP object is very slow, so we process the AP list
+    #      in batches and send them to the client.  Also, reading the APs
+    #      causes the Tx on the BLE GATT characteristic to slow down,
+    #      which leads to long delays (timeouts) for the client.  So,
+    #      the code below implements a callback when the BLE Tx is
+    #      complete.  Thus we only process the AP list after the last
+    #      message was sent, then send the message once we've processed
+    #      the AP list; this ends up being more responsive to the client.
+
     def ap_scan_tx_complete(self):
         """Callback for AP scan list TX complete
         """
@@ -643,8 +644,14 @@ class NetManager():
     def is_lte_configured(self):
         return self.find_conn_by_id(LTE_CONN_NAME) is not None
 
+    def is_lte_autoconf(self):
+        return os.path.exists(AUTOCONF_LTE)
+
     def is_modem_available(self):
         return self.modem_present
+
+    def autoconf_cb(self, obj):
+        pass
 
     def modem_added(self, object_path, properties):
         syslog('Modem added: {}'.format(object_path))
@@ -683,6 +690,13 @@ class NetManager():
                         self.modem_path), OFONO_NETREG_IFACE)
             elif self.modem_netreg is not None:
                 self.modem_netreg = None
+            # Check all interfaces are present and we should auto-configure
+            if (self.modem_present and not self.is_lte_configured() and
+                 not self.autoconf_lte and self.is_lte_autoconf() and
+                 self.modem_sim and self.modem_connman and self.modem_netreg):
+                syslog('Performing LTE autoconfiguration!')
+                self.autoconf_lte = True
+                self.req_connect_lte({}, self.autoconf_cb)
 
     def wwan_dev_props_changed(self, iface, props_changed, props_invalidated):
         """ Signal callback for change to the WWAN device properties
