@@ -66,6 +66,7 @@ OFONO_SIM_IFACE = 'org.ofono.SimManager'
 OFONO_CONNMAN_IFACE = 'org.ofono.ConnectionManager'
 OFONO_CONNECTION_IFACE = 'org.ofono.ConnectionContext'
 OFONO_NETREG_IFACE = 'org.ofono.NetworkRegistration'
+OFONO_LTE_IFACE = 'org.ofono.LongTermEvolution'
 
 GEMALTO_MODEM_MODEL = 'PLS62-W'
 
@@ -279,6 +280,7 @@ class NetManager():
             self.modem_sim = None
             self.modem_connman = None
             self.modem_netreg = None
+            self.modem_lte = None
             self.autoconf_lte = False
             self.ofono = dbus.Interface(self.bus.get_object(OFONO_BUS_NAME, OFONO_ROOT_PATH), OFONO_MANAGER_IFACE)
             self.ofono.connect_to_signal('ModemAdded', self.modem_added)
@@ -690,10 +692,17 @@ class NetManager():
                         self.modem_path), OFONO_NETREG_IFACE)
             elif self.modem_netreg is not None:
                 self.modem_netreg = None
+            if OFONO_LTE_IFACE in value:
+                if self.modem_lte is None:
+                    self.modem_lte = dbus.Interface(dbus.SystemBus().get_object(OFONO_BUS_NAME,
+                        self.modem_path), OFONO_LTE_IFACE)
+            elif self.modem_lte is not None:
+                self.modem_lte = None
             # Check all interfaces are present and we should auto-configure
             if (self.modem_present and not self.is_lte_configured() and
                  not self.autoconf_lte and self.is_lte_autoconf() and
-                 self.modem_sim and self.modem_connman and self.modem_netreg):
+                 self.modem_sim and self.modem_connman and self.modem_netreg and
+                 self.modem_lte):
                 syslog('Performing LTE autoconfiguration!')
                 self.autoconf_lte = True
                 self.req_connect_lte({}, self.autoconf_cb)
@@ -742,18 +751,15 @@ class NetManager():
             conn = create_lte_conn(LTE_CONN_NAME, WWAN_DEV_NAME, prefer_lte)
 
             self.new_conn_obj = self.nm_settings.AddConnection(conn)
-            # Configure the connection (if not default)
+            # Configure the LTE APN (if not default)
             if apn or username or password:
-                ctxs = self.modem_connman.GetContexts()
-                default_ctx = dbus.Interface(self.bus.get_object(
-                    OFONO_BUS_NAME, ctxs[0][0]), OFONO_CONNECTION_IFACE)
                 if apn:
                     syslog('Configuring LTE connection for APN: '.format(apn))
-                    default_ctx.SetProperty('AccessPointName', apn)
+                    self.modem_lte.SetProperty('DefaultAccessPointName', apn)
                 if username:
-                    default_ctx.SetProperty('Username', username)
+                    self.modem_lte.SetProperty('Username', username)
                 if password:
-                    default_ctx.SetProperty('Password', password)
+                    self.modem_lte.SetProperty('Password', password)
             # Set roaming
             syslog('Setting RoamingAllowed to {}'.format(roaming))
             self.modem_connman.SetProperty('RoamingAllowed', roaming)
