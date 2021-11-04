@@ -8,6 +8,7 @@ from syslog import syslog
 import json
 import socket
 import struct
+from gi.repository import GObject as gobject
 
 # Network Manager Device Connection States
 NM_DEVICE_STATE_UNKNOWN = 0
@@ -93,6 +94,8 @@ NM_AP_IFACE = 'org.freedesktop.NetworkManager.AccessPoint'
 NM_IP4CONFIG_IFACE = 'org.freedesktop.NetworkManager.IP4Config'
 NM_IP6CONFIG_IFACE = 'org.freedesktop.NetworkManager.IP6Config'
 
+PROPERTY_CHANGE_DELAY_MS = 15000
+
 class NetStat():
     """ NetworkManager connection stats reporting service
     """
@@ -105,8 +108,9 @@ class NetStat():
             # self.nm_settings = dbus.Interface(self.bus.get_object(NM_IFACE, NM_SETTINGS_OBJ), NM_SETTINGS_IFACE)
             self.nm_props.connect_to_signal('PropertiesChanged', self.nm_props_changed)
             self.connection_stats_changed = connection_stat_changed_signal
+            self.property_timer_id = None
             self.connection_stats = {}
-            self.update_connection_stats()
+            self.schedule_status_update()
         except dbus.DBusException:
             pass
 
@@ -115,7 +119,7 @@ class NetStat():
         """
 
         # Trigger an update of the connection stats
-        self.update_connection_stats()
+        self.schedule_status_update()
 
     def generate_boilerplate_stat_entry(self, props: dict) -> dict:
         """
@@ -322,6 +326,15 @@ class NetStat():
         # Fire the handler if defined
         if self.connection_stats_changed != None:
             self.connection_stats_changed(json.dumps(self.connection_stats))
+        self.property_timer_id = None
+        return False # Don't repeat timer
+
+    def schedule_status_update(self):
+        """ Schedule or reschedule the status report
+        """
+        if self.property_timer_id is not None:
+            gobject.source_remove(self.property_timer_id)
+        self.property_timer_id = gobject.timeout_add(PROPERTY_CHANGE_DELAY_MS, self.update_connection_stats)
 
     def set_connection_stats_changed(self, callback_function):
         self.connection_stats_changed = callback_function
