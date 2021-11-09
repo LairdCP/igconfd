@@ -512,7 +512,7 @@ class NetManager():
     def get_config_from_nm_config(self, nm_config):
         config = {}
         try:
-            config['ssid'] = ''.join([chr(b) for b in nm_config['802-11-wireless']['ssid']])
+            config['ssid'] = bytearray(nm_config['802-11-wireless']['ssid']).decode('utf-8')
             if 'autoconnect-priority' in nm_config['connection']:
                 config['priority'] = int(nm_config['connection']['autoconnect-priority'])
             if '802-11-wireless-security' in nm_config:
