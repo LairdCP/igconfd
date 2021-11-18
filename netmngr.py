@@ -701,8 +701,7 @@ class NetManager():
             # Check all interfaces are present and we should auto-configure
             if (self.modem_present and not self.is_lte_configured() and
                  not self.autoconf_lte and self.is_lte_autoconf() and
-                 self.modem_sim and self.modem_connman and self.modem_netreg and
-                 self.modem_lte):
+                 self.modem_sim and self.modem_connman and self.modem_lte):
                 syslog('Performing LTE autoconfiguration!')
                 self.autoconf_lte = True
                 self.req_connect_lte({}, self.autoconf_cb)
