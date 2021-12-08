@@ -61,13 +61,16 @@ class LTEStat():
         self.connection_status = {}
         self.connection_stats_changed = connection_stat_changed_signal
         self.property_timer_id = None
-        self.bus = dbus.SystemBus()
-        self.ofono = dbus.Interface(self.bus.get_object(OFONO_BUS_NAME, OFONO_ROOT_PATH), OFONO_MANAGER_IFACE)
-        self.ofono.connect_to_signal('ModemAdded', self.modem_added)
-        nm = dbus.Interface(self.bus.get_object(NM_IFACE, NM_OBJ), NM_IFACE)
-        eth0_dev_obj = self.bus.get_object(NM_IFACE, nm.GetDeviceByIpIface("eth0"))
-        eth0_props = dbus.Interface(eth0_dev_obj, DBUS_PROP_IFACE)
-        self.eth0_addr = str(eth0_props.Get(NM_DEVICE_IFACE, "HwAddress"))
+        try:
+            self.bus = dbus.SystemBus()
+            self.ofono = dbus.Interface(self.bus.get_object(OFONO_BUS_NAME, OFONO_ROOT_PATH), OFONO_MANAGER_IFACE)
+            self.ofono.connect_to_signal('ModemAdded', self.modem_added)
+            nm = dbus.Interface(self.bus.get_object(NM_IFACE, NM_OBJ), NM_IFACE)
+            eth0_dev_obj = self.bus.get_object(NM_IFACE, nm.GetDeviceByIpIface("eth0"))
+            eth0_props = dbus.Interface(eth0_dev_obj, DBUS_PROP_IFACE)
+            self.eth0_addr = str(eth0_props.Get(NM_DEVICE_IFACE, "HwAddress"))
+        except dbus.DBusException:
+            syslog('Ofono not present, LTE status disabled.')
 
     def collect_properties(self, properties, property_map):
         """ Collect properties from reporting interface into current state
