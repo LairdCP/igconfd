@@ -1,38 +1,28 @@
 """
 The ConfigurationService will initialize the Gatt application that does the BLE
-work.  
+work.
 """
 
 import dbus, dbus.service, dbus.exceptions
-import json
-import os, os.path
-import time
 import subprocess
-import leadvert
-import vspsvc
-
-from app import Application
-from messagemngr import MessageManager
 from syslog import syslog
-from netstat import NetStat
-from ltestat import LTEStat
 
-import sys
-PYTHON3 = sys.version_info >= (3, 0)
-if PYTHON3:
-    from gi.repository import GObject as gobject
-else:
-    import gobject
+from .app import Application
+from .messagemngr import MessageManager
+from .netstat import NetStat
+from .ltestat import LTEStat
+
+from gi.repository import GObject as gobject
+
 
 class ConfigurationService(Application):
     def __init__(self, device):
-        self.bus = dbus.SystemBus()
-        self.msg_manager = MessageManager(self.stop)
-        self.device = device
-        wlan_mac_addr = self.msg_manager.net_manager.get_wlan_hw_address()
-        self.device_name = '{} ({})'.format(device, wlan_mac_addr[-8:])
+        bus = dbus.SystemBus()
+        msg_manager = MessageManager(self.stop)
+        wlan_mac_addr = msg_manager.net_manager.get_wlan_hw_address()
+        device_name = '{} ({})'.format(device, wlan_mac_addr[-8:])
 
-        Application.__init__(self, self.bus, self.device_name)
+        super().__init__(bus, device_name, msg_manager)
 
         self.msg_manager.start(self.vsp_svc.tx)
         self.init_ble_service()

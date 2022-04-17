@@ -1,11 +1,6 @@
 import pygatt
 import json
-import sys
-PYTHON3 = sys.version_info >= (3, 0)
-if PYTHON3:
-    import queue as Queue
-else:
-    import Queue
+import queue as Queue
 
 DEFAULT_ADDR = 'c0:ee:40:50:27:03'
 
@@ -131,4 +126,3 @@ def req_storage_swap():
 # Start adapter
 adapter = pygatt.BGAPIBackend()
 adapter.start()
-

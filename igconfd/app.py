@@ -6,17 +6,12 @@ import json
 import os, os.path
 import time
 import subprocess
-import leadvert
-import vspsvc
-
 from syslog import syslog
 
-import sys
-PYTHON3 = sys.version_info >= (3, 0)
-if PYTHON3:
-    from gi.repository import GObject as gobject
-else:
-    import gobject
+from . import leadvert
+from . import vspsvc
+
+from gi.repository import GObject as gobject
 
 DBUS_OM_IFACE = 'org.freedesktop.DBus.ObjectManager'
 DBUS_PROP_IFACE = 'org.freedesktop.DBus.Properties'
@@ -28,28 +23,32 @@ LE_ADVERT_MGR_IFACE = 'org.bluez.LEAdvertisingManager1'
 
 BLUETOOTH_DEBUG_FS_BASE = '/sys/kernel/debug/bluetooth/hci0'
 
-LE_CONN_MIN_INTERVAL = 12 # 15 ms
-LE_CONN_MAX_INTERVAL = 24 # 30 ms
+LE_CONN_MIN_INTERVAL = 12  # 15 ms
+LE_CONN_MAX_INTERVAL = 24  # 30 ms
 LE_CONN_LATENCY = 0
-LE_SUPERVISION_TIMEOUT = 500 # 5000 ms
-LE_ADV_MIN_INTERVAL = 200 # 125 ms
-LE_ADV_MAX_INTERVAL = 800 # 500 ms
+LE_SUPERVISION_TIMEOUT = 500  # 5000 ms
+LE_ADV_MIN_INTERVAL = 200  # 125 ms
+LE_ADV_MAX_INTERVAL = 800  # 500 ms
 
 IGCONFD_SVC = 'com.lairdtech.security.ConfigService'
 IGCONFD_OBJ = '/com/lairdtech/security/ConfigService'
+
 
 class Application(dbus.service.Object):
     """
     org.bluez.GattApplication1 interface implementation
     """
-    def __init__(self, bus, device_name):
+
+    def __init__(self, bus, device_name, msg_manager):
         self.path = IGCONFD_OBJ
         self.services = []
 
-        name = dbus.service.BusName(IGCONFD_SVC, bus=self.bus)
-        super().__init__(name, self.path)
-
+        self.bus = bus
         self.device_name = device_name
+        self.msg_manager = msg_manager
+
+        name = dbus.service.BusName(IGCONFD_SVC, bus=bus)
+        super().__init__(name, self.path)
 
         # Start the VSP service
         self.vsp_svc = vspsvc.VirtualSerialPortService(bus, 0, self.rx_cb, self.disc_cb)
@@ -57,12 +56,15 @@ class Application(dbus.service.Object):
 
         # Get the various Bluez Interfaces
         self.adapter = self.find_obj_by_iface(GATT_MANAGER_IFACE)
-        self.gatt_manager = dbus.Interface(self.bus.get_object(BLUEZ_SERVICE_NAME,
-            self.adapter), GATT_MANAGER_IFACE)
-        self.advert_manager = dbus.Interface(self.bus.get_object(BLUEZ_SERVICE_NAME,
-            self.adapter), LE_ADVERT_MGR_IFACE)
-        self.le_adv_data = leadvert.LEAdvertData(self.bus, 0, [vspsvc.UUID_VSP_SVC],
-            self.device_name)
+        self.gatt_manager = dbus.Interface(
+            bus.get_object(BLUEZ_SERVICE_NAME, self.adapter), GATT_MANAGER_IFACE
+        )
+        self.advert_manager = dbus.Interface(
+            bus.get_object(BLUEZ_SERVICE_NAME, self.adapter), LE_ADVERT_MGR_IFACE
+        )
+        self.le_adv_data = leadvert.LEAdvertData(
+            bus, 0, [vspsvc.UUID_VSP_SVC], self.device_name
+        )
 
         self.rx_timeout_id = None
         self.rx_message = None
@@ -73,43 +75,44 @@ class Application(dbus.service.Object):
     def add_service(self, service):
         self.services.append(service)
 
-    @dbus.service.signal("com.lairdtech.security.ConfigInterface", signature='i')
+    @dbus.service.signal('com.lairdtech.security.ConfigInterface', signature='i')
     def LTEStatusChanged(self, status):
         """
-           Provides the status of the LTE connection
+        Provides the status of the LTE connection
         """
-        syslog("configsvc: lte status changed: %d" % status)
+        syslog('configsvc: lte status changed: %d' % status)
         return status
 
-    @dbus.service.signal("com.lairdtech.security.ConfigInterface", signature='s')
+    @dbus.service.signal('com.lairdtech.security.ConfigInterface', signature='s')
     def ConnectionStatsChanged(self, connection_stats):
-        syslog("configsvc: connection stats changed")
+        syslog('configsvc: connection stats changed')
         return connection_stats
 
-    @dbus.service.method("com.lairdtech.security.ConfigInterface",
-                         in_signature='s', out_signature='i')
+    @dbus.service.method(
+        'com.lairdtech.security.ConfigInterface', in_signature='s', out_signature='i'
+    )
     def ConnectLTE(self, config):
         try:
             lte_config = json.loads(config)
         except Exception as e:
-            syslog("Configuration failed, exception = %s" % str(e))
+            syslog('Configuration failed, exception = %s' % str(e))
             return -1
 
         self.msg_manager.net_manager.req_connect_lte(lte_config, self.LTEStatusChanged)
         return 0
 
-    @dbus.service.method("com.lairdtech.security.ConfigInterface",
-                         in_signature='s', out_signature='i')
+    @dbus.service.method(
+        'com.lairdtech.security.ConfigInterface', in_signature='s', out_signature='i'
+    )
     def SetWifiConfigurations(self, config):
         try:
             wifi_configs = json.loads(config)
         except Exception as e:
-            syslog("Configuration failed, exception = %s" % str(e))
+            syslog('Configuration failed, exception = %s' % str(e))
             return -1
 
         self.msg_manager.net_manager.req_update_aps(wifi_configs)
         return 0
-
 
     @dbus.service.method(DBUS_OM_IFACE, out_signature='a{oa{sa{sv}}}')
     def GetManagedObjects(self):
@@ -132,18 +135,18 @@ class Application(dbus.service.Object):
         return False
 
     def rx_cb(self, message):
-         self.rx_message = (self.rx_message or '') + message
-         if self.rx_timeout_id:
-             gobject.source_remove(self.rx_timeout_id)
-             self.rx_timeout_id = None
-         try:
-             req_obj = json.loads(self.rx_message)
-             self.vsp_svc.flush_tx()
-             self.msg_manager.add_request(req_obj)
-             self.rx_message = None
-         except ValueError:
-             # Couldn't parse JSON, set timeout for additional data
-             self.rx_timeout_id = gobject.timeout_add(2000, self.rx_timeout)
+        self.rx_message = (self.rx_message or '') + message
+        if self.rx_timeout_id:
+            gobject.source_remove(self.rx_timeout_id)
+            self.rx_timeout_id = None
+        try:
+            req_obj = json.loads(self.rx_message)
+            self.vsp_svc.flush_tx()
+            self.msg_manager.add_request(req_obj)
+            self.rx_message = None
+        except ValueError:
+            # Couldn't parse JSON, set timeout for additional data
+            self.rx_timeout_id = gobject.timeout_add(2000, self.rx_timeout)
 
     def disc_cb(self):
         syslog('Client disconnected.')
@@ -151,8 +154,9 @@ class Application(dbus.service.Object):
 
     def find_objs_by_iface(self, iface):
         found_objs = []
-        remote_om = dbus.Interface(self.bus.get_object(BLUEZ_SERVICE_NAME, '/'),
-            DBUS_OM_IFACE)
+        remote_om = dbus.Interface(
+            self.bus.get_object(BLUEZ_SERVICE_NAME, '/'), DBUS_OM_IFACE
+        )
         objects = remote_om.GetManagedObjects()
         for o, props in objects.items():
             if iface in props.keys():
@@ -160,8 +164,9 @@ class Application(dbus.service.Object):
         return found_objs
 
     def find_obj_by_iface(self, iface):
-        remote_om = dbus.Interface(self.bus.get_object(BLUEZ_SERVICE_NAME, '/'),
-            DBUS_OM_IFACE)
+        remote_om = dbus.Interface(
+            self.bus.get_object(BLUEZ_SERVICE_NAME, '/'), DBUS_OM_IFACE
+        )
         objects = remote_om.GetManagedObjects()
         for o, props in objects.items():
             if iface in props.keys():
@@ -186,22 +191,28 @@ class Application(dbus.service.Object):
             for d in device_objs:
                 try:
                     syslog('Found device: {}'.format(d))
-                    dev = dbus.Interface(self.bus.get_object(BLUEZ_SERVICE_NAME,
-                        d), BLUEZ_DEVICE_IFACE)
-                    dev_props = dbus.Interface(self.bus.get_object(BLUEZ_SERVICE_NAME,
-                        d), DBUS_PROP_IFACE)
+                    dev = dbus.Interface(
+                        self.bus.get_object(BLUEZ_SERVICE_NAME, d), BLUEZ_DEVICE_IFACE
+                    )
+                    dev_props = dbus.Interface(
+                        self.bus.get_object(BLUEZ_SERVICE_NAME, d), DBUS_PROP_IFACE
+                    )
                     if dev_props.Get(BLUEZ_DEVICE_IFACE, 'Connected'):
-                        syslog('Disconnecting device {}'.format(dev_props.Get(BLUEZ_DEVICE_IFACE, 'Address')))
+                        syslog(
+                            'Disconnecting device {}'.format(
+                                dev_props.Get(BLUEZ_DEVICE_IFACE, 'Address')
+                            )
+                        )
                         dev.Disconnect()
                 except dbus.exceptions.DBusException as e:
-                        syslog("igconfd: disconnect_devices: %s" % e)
-                        pass
+                    syslog('igconfd: disconnect_devices: %s' % e)
+                    pass
 
     def write_debugfs_val(self, filename, value):
         syslog('Writing {} to {}'.format(value, filename))
         file_path = os.path.join(BLUETOOTH_DEBUG_FS_BASE, filename)
         try:
-            with open(file_path, "w") as f:
+            with open(file_path, 'w') as f:
                 f.write(str(value))
                 f.close()
         except IOError as e:
@@ -230,13 +241,19 @@ class Application(dbus.service.Object):
 
     def register_le_services(self):
         syslog('Registering GATT application...')
-        self.gatt_manager.RegisterApplication(self.get_path(), {},
+        self.gatt_manager.RegisterApplication(
+            self.get_path(),
+            {},
             reply_handler=self.register_app_cb,
-            error_handler=self.register_app_error_cb)
+            error_handler=self.register_app_error_cb,
+        )
         syslog('Registering LE Advertisement Data...')
-        self.advert_manager.RegisterAdvertisement(self.le_adv_data.get_path(), {},
+        self.advert_manager.RegisterAdvertisement(
+            self.le_adv_data.get_path(),
+            {},
             reply_handler=self.register_ad_cb,
-            error_handler=self.register_ad_error_cb)
+            error_handler=self.register_ad_error_cb,
+        )
 
     def deregister_le_services(self):
         syslog('Unregistering LE Advertisement Data...')

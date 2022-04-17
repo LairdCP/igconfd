@@ -1,23 +1,15 @@
 """
 The CustomService will extend the the ConfigurationService to implement
-the features specific to the IG60. 
+the features specific to the IG60.
 """
 
 import dbus, dbus.service, dbus.exceptions
-import json
-import os, os.path
-import time
 import subprocess
-
 from syslog import syslog
-from configsvc import ConfigurationService
 
-import sys
-PYTHON3 = sys.version_info >= (3, 0)
-if PYTHON3:
-    from gi.repository import GObject as gobject
-else:
-    import gobject
+from .configsvc import ConfigurationService
+
+from gi.repository import GObject as gobject
 
 # DBus paths for the IG services
 DEVICE_SVC_NAME = 'com.lairdtech.device.DeviceService'
