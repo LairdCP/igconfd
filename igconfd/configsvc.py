@@ -20,7 +20,7 @@ class ConfigurationService(Application):
         bus = dbus.SystemBus()
         msg_manager = MessageManager(self.stop)
         wlan_mac_addr = msg_manager.net_manager.get_wlan_hw_address()
-        device_name = '{} ({})'.format(device, wlan_mac_addr[-8:])
+        device_name = "{} ({})".format(device, wlan_mac_addr[-8:])
 
         super().__init__(bus, device_name, msg_manager)
 
@@ -30,12 +30,12 @@ class ConfigurationService(Application):
         self.lte_stat = LTEStat(self.ConnectionStatsChanged)
 
     def start(self):
-        syslog('Enabling BLE service.')
+        syslog("Enabling BLE service.")
         self.register_le_services()
-        subprocess.call(['btmgmt', 'power', 'on'])
+        subprocess.call(["btmgmt", "power", "on"])
 
     def stop(self):
-        syslog('Disabling BLE service.')
+        syslog("Disabling BLE service.")
         self.disconnect_devices()
         self.deregister_le_services()
-        subprocess.call(['btmgmt', 'power', 'off'])
+        subprocess.call(["btmgmt", "power", "off"])
