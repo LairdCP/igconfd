@@ -12,13 +12,13 @@ from .configsvc import ConfigurationService
 from gi.repository import GObject as gobject
 
 # DBus paths for the IG services
-DEVICE_SVC_NAME = 'com.lairdtech.device.DeviceService'
-DEVICE_SVC_PATH = '/com/lairdtech/device/DeviceService'
-DEVICE_IFACE = 'com.lairdtech.device.DeviceInterface'
-PROV_SVC = 'com.lairdtech.IG.ProvService'
-PROV_IFACE = 'com.lairdtech.IG.ProvInterface'
-PROV_OBJ = '/com/lairdtech/IG/ProvService'
-DBUS_PROP_IFACE = 'org.freedesktop.DBus.Properties'
+DEVICE_SVC_NAME = "com.lairdtech.device.DeviceService"
+DEVICE_SVC_PATH = "/com/lairdtech/device/DeviceService"
+DEVICE_IFACE = "com.lairdtech.device.DeviceInterface"
+PROV_SVC = "com.lairdtech.IG.ProvService"
+PROV_IFACE = "com.lairdtech.IG.ProvInterface"
+PROV_OBJ = "/com/lairdtech/IG/ProvService"
+DBUS_PROP_IFACE = "org.freedesktop.DBus.Properties"
 
 PROV_COMPLETE_SUCCESS = 0
 BUTTON_PRESS_SHORT = 0
@@ -28,42 +28,48 @@ BLE_STATE_INACTIVE = 0
 
 BUTTON_PRESS_MSG_TIMEOUT_MS = 60000
 
+
 class CustomService(ConfigurationService):
     def __init__(self, device):
 
         ConfigurationService.__init__(self, device)
-        syslog('Starting Laird IG60 configuration service.')
-        self.device_svc = dbus.Interface(self.bus.get_object(DEVICE_SVC_NAME,
-        DEVICE_SVC_PATH), DEVICE_IFACE)
-        self.device_svc.connect_to_signal('ConfigButtonPress', self.config_button_press)
+        syslog("Starting Laird IG60 configuration service.")
+        self.device_svc = dbus.Interface(
+            self.bus.get_object(DEVICE_SVC_NAME, DEVICE_SVC_PATH), DEVICE_IFACE
+        )
+        self.device_svc.connect_to_signal("ConfigButtonPress", self.config_button_press)
         self.prov = dbus.Interface(self.bus.get_object(PROV_SVC, PROV_OBJ), PROV_IFACE)
-        self.prov_props = dbus.Interface(self.bus.get_object(PROV_SVC, PROV_OBJ), DBUS_PROP_IFACE)
-        self.prov.connect_to_signal('StateChanged', self.prov_state_changed)
-        self.prov_state = self.prov_props.Get(PROV_IFACE, 'Status')
-        self.greengrass_prov_state = self.prov_props.Get(PROV_IFACE, 'GreengrassProvisioned')
-        self.edge_iq_prov_state = self.prov_props.Get(PROV_IFACE, 'EdgeIQProvisioned')
+        self.prov_props = dbus.Interface(
+            self.bus.get_object(PROV_SVC, PROV_OBJ), DBUS_PROP_IFACE
+        )
+        self.prov.connect_to_signal("StateChanged", self.prov_state_changed)
+        self.prov_state = self.prov_props.Get(PROV_IFACE, "Status")
+        self.greengrass_prov_state = self.prov_props.Get(
+            PROV_IFACE, "GreengrassProvisioned"
+        )
+        self.edge_iq_prov_state = self.prov_props.Get(PROV_IFACE, "EdgeIQProvisioned")
         # Request the device service to turn on the LTE modem (if present)
         self.device_svc.LTE_On()
 
     def enable_ble_service(self):
-        syslog('Enabling BLE service.')
+        syslog("Enabling BLE service.")
         self.register_le_services()
         self.device_svc.SetBLEState(BLE_STATE_ACTIVE)
-        subprocess.call(['btmgmt', 'power', 'on'])
+        subprocess.call(["btmgmt", "power", "on"])
 
     def disable_ble_service(self):
-        syslog('Disabling BLE service.')
+        syslog("Disabling BLE service.")
         self.disconnect_devices()
         self.device_svc.SetBLEState(BLE_STATE_INACTIVE)
         self.deregister_gatt_services()
-        subprocess.call(['btmgmt', 'power', 'off'])
+        subprocess.call(["btmgmt", "power", "off"])
         return False
 
     def start(self):
         if self.greengrass_prov_state or self.edge_iq_prov_state:
-            syslog('Device is provisioned, skipping BLE service.')
+            syslog("Device is provisioned, skipping BLE service.")
         else:
-            syslog('Device is not provisioned, starting BLE service...')
+            syslog("Device is not provisioned, starting BLE service...")
             self.enable_ble_service()
 
     def stop(self):
@@ -78,18 +84,22 @@ class CustomService(ConfigurationService):
         self.prov_state = state
 
         # Update the provisioned state
-        self.greengrass_prov_state = self.prov_props.Get(PROV_IFACE, 'GreengrassProvisioned')
-        self.edge_iq_prov_state = self.prov_props.Get(PROV_IFACE, 'EdgeIQProvisioned')
-        syslog('Greengrass provisioned state = %s' % str(self.greengrass_prov_state))
-        syslog('EdgeIQ provisioned state = %s' % str(self.edge_iq_prov_state))
+        self.greengrass_prov_state = self.prov_props.Get(
+            PROV_IFACE, "GreengrassProvisioned"
+        )
+        self.edge_iq_prov_state = self.prov_props.Get(PROV_IFACE, "EdgeIQProvisioned")
+        syslog("Greengrass provisioned state = %s" % str(self.greengrass_prov_state))
+        syslog("EdgeIQ provisioned state = %s" % str(self.edge_iq_prov_state))
 
         if state == PROV_COMPLETE_SUCCESS:
             self.stop()
 
     def config_button_press(self, press_type):
         # If button is pressed (short) and already provisioned, enable service
-        if press_type == BUTTON_PRESS_SHORT and (self.greengrass_prov_state or self.edge_iq_prov_state):
-            syslog('Config button pressed, enabling BLE service.')
+        if press_type == BUTTON_PRESS_SHORT and (
+            self.greengrass_prov_state or self.edge_iq_prov_state
+        ):
+            syslog("Config button pressed, enabling BLE service.")
             self.enable_ble_service()
             # Set message timeout callback to disable service after inactivity
             self.msg_manager.set_msg_timeout(BUTTON_PRESS_MSG_TIMEOUT_MS, self.stop)
