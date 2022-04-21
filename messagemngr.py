@@ -232,6 +232,7 @@ class MessageManager():
         name = str(self.bluez_dev_props.Get(ADAPTER_IFACE, "Name"))
 
         id_data = { 'deviceId' : self.net_manager.get_wlan_hw_address(),
+            'eth0addr' : self.net_manager.get_eth0_hw_address(),
             'name' : name, 'devType' : int(self.dev_manager.get_device_type()),
             'version' : version}
         self.send_response(req_obj, MSG_STATUS_SUCCESS, data=id_data)
