@@ -6,24 +6,27 @@ import time
 import dbus, dbus.exceptions
 from syslog import syslog
 
-from gi.repository import GObject as gobject
+import sys
+PYTHON3 = sys.version_info >= (3, 0)
+if PYTHON3:
+    from gi.repository import GObject as gobject
+else:
+    import gobject
 
-PROV_SVC = "com.lairdtech.IG.ProvService"
-PROV_IFACE = "com.lairdtech.IG.ProvInterface"
-PROV_OBJ = "/com/lairdtech/IG/ProvService"
-DBUS_PROP_IFACE = "org.freedesktop.DBus.Properties"
+PROV_SVC = 'com.lairdtech.IG.ProvService'
+PROV_IFACE = 'com.lairdtech.IG.ProvInterface'
+PROV_OBJ = '/com/lairdtech/IG/ProvService'
+DBUS_PROP_IFACE = 'org.freedesktop.DBus.Properties'
 
 PROVISION_INTERMEDIATE_TIMEOUT = 2
 PROVISION_TIMER_MS = 500
 
-EDGEIQ_URL = "http://api.edgeiq.io/"
+EDGEIQ_URL = 'http://api.edgeiq.io/'
 
-
-class ProvManager:
+class ProvManager():
     """
     Provisioning States - these must match the IG Provisioning Service
     """
-
     PROV_COMPLETE_SUCCESS = 0
     PROV_UNPROVISIONED = 1
     PROV_INPROGRESS_DOWNLOADING = 2
@@ -40,24 +43,16 @@ class ProvManager:
         try:
             bus = dbus.SystemBus()
             self.prov = dbus.Interface(bus.get_object(PROV_SVC, PROV_OBJ), PROV_IFACE)
-            self.prov_props = dbus.Interface(
-                bus.get_object(PROV_SVC, PROV_OBJ), DBUS_PROP_IFACE
-            )
-            self.prov.connect_to_signal("StateChanged", self.prov_state_changed)
-            self._prov_state = self.prov_props.Get(PROV_IFACE, "Status")
-            self._greengrass_prov_state = self.prov_props.Get(
-                PROV_IFACE, "GreengrassProvisioned"
-            )
-            self._edgeiq_prov_state = self.prov_props.Get(
-                PROV_IFACE, "EdgeIQProvisioned"
-            )
+            self.prov_props = dbus.Interface(bus.get_object(PROV_SVC, PROV_OBJ), DBUS_PROP_IFACE)
+            self.prov.connect_to_signal('StateChanged', self.prov_state_changed)
+            self._prov_state = self.prov_props.Get(PROV_IFACE, 'Status')
+            self._greengrass_prov_state = self.prov_props.Get(PROV_IFACE, 'GreengrassProvisioned')
+            self._edgeiq_prov_state = self.prov_props.Get(PROV_IFACE, 'EdgeIQProvisioned')
             self.response_cb = response_cb
 
             # Disabled the API if provisioning is complete or there is no Provisioning Service
-            if (
-                self._prov_state == self.PROV_COMPLETE_SUCCESS
-                and self._greengrass_prov_state == True
-            ):
+            if self._prov_state == self.PROV_COMPLETE_SUCCESS and \
+                self._greengrass_prov_state == True:
                 self.api_enabled = False
             else:
                 self.api_enabled = True
@@ -65,27 +60,21 @@ class ProvManager:
             self.api_enabled = False
 
     def is_provisioned(self):
-        return (
-            self._prov_state == self.PROV_COMPLETE_SUCCESS
-            and self._greengrass_prov_state == True
-        )
+        return self._prov_state == self.PROV_COMPLETE_SUCCESS and \
+                self._greengrass_prov_state == True
 
     def disable_api(self):
         self.api_enabled = False
 
     def prov_state_changed(self, state):
-        syslog("Provisioning state changed: {}".format(state))
+        syslog('Provisioning state changed: {}'.format(state))
         self._prov_state = state
-        self._greengrass_prov_state = self.prov_props.Get(
-            PROV_IFACE, "GreengrassProvisioned"
-        )
-        self._edgeiq_prov_state = self.prov_props.Get(PROV_IFACE, "EdgeIQProvisioned")
+        self._greengrass_prov_state = self.prov_props.Get(PROV_IFACE, 'GreengrassProvisioned')
+        self._edgeiq_prov_state = self.prov_props.Get(PROV_IFACE, 'EdgeIQProvisioned')
 
         # Disable the API if provisioning is complete or there is no Provisioning Service
-        if (
-            self._prov_state == self.PROV_COMPLETE_SUCCESS
-            and self._greengrass_prov_state == True
-        ):
+        if self._prov_state == self.PROV_COMPLETE_SUCCESS and \
+            self._greengrass_prov_state == True:
             self.api_enabled = False
         else:
             self.api_enabled = True
@@ -100,27 +89,22 @@ class ProvManager:
         return self._edgeiq_prov_state
 
     def is_provisioning(self):
-        if (
-            self._prov_state == self.PROV_UNPROVISIONED
-            or self._prov_state == self.PROV_INPROGRESS_DOWNLOADING
-            or self._prov_state == self.PROV_INPROGRESS_APPLYING
-        ):
+        if self._prov_state == self.PROV_UNPROVISIONED or \
+            self._prov_state == self.PROV_INPROGRESS_DOWNLOADING or \
+            self._prov_state == self.PROV_INPROGRESS_APPLYING:
             return True
         else:
             return False
 
     def check_provision(self):
         ret = self.is_provisioning()
-        if (
-            ret
-            and time.time() - self.provision_msg_time > PROVISION_INTERMEDIATE_TIMEOUT
-        ):
+        if ret and time.time() - self.provision_msg_time > PROVISION_INTERMEDIATE_TIMEOUT:
             # Still waiting for completion, send intermediate response
             self.provision_msg_time = time.time()
             if self._prov_state == self.PROV_INPROGRESS_DOWNLOADING:
-                data = {"operation": "download"}
+                data = {'operation' : 'download'}
             elif self._prov_state == self.PROV_INPROGRESS_APPLYING:
-                data = {"operation": "apply"}
+                data = {'operation' : 'apply'}
             else:
                 data = None
 
@@ -132,32 +116,29 @@ class ProvManager:
 
     def start_provisioning(self, prov_data):
 
-        syslog("Starting provisioning.")
-        if (
-            self._prov_state == self.PROV_INPROGRESS_DOWNLOADING
-            or self._prov_state == self.PROV_INPROGRESS_APPLYING
-        ):
+        syslog('Starting provisioning.')
+        if self._prov_state == self.PROV_INPROGRESS_DOWNLOADING or \
+            self._prov_state == self.PROV_INPROGRESS_APPLYING:
             return
         try:
-            if "username" in prov_data and "password" in prov_data:
-                auth_params = {
-                    "username": prov_data["username"].encode(),
-                    "password": prov_data["password"].encode(),
-                }
+            if 'username' in prov_data and 'password' in prov_data:
+                auth_params = { 'username' : prov_data['username'].encode(),
+                  'password' : prov_data['password'].encode() }
             else:
                 auth_params = {}
-            status = self.prov.StartProvisioning(prov_data["url"].encode(), auth_params)
+            status = self.prov.StartProvisioning(prov_data['url'].encode(),
+                 auth_params)
             self.response_cb(status)
             self._prov_state = status
         except KeyError:
-            syslog("Invalid provisioning request data.")
+            syslog('Invalid provisioning request data.')
             self.response_cb(self.PROV_FAILED_INVALID)
             self._prov_state = self.PROV_FAILED_INVALID
             return
 
         if self.is_provisioning():
             # Success, send actualt response
-            self.response_cb(self.PROV_UNPROVISIONED, {"operation": "connect"})
+            self.response_cb(self.PROV_UNPROVISIONED, {'operation' : 'connect'})
             # Set timer task to check status & sent intermediate responses
             self.provision_msg_time = time.time()
             gobject.timeout_add(PROVISION_TIMER_MS, self.check_provision)
@@ -165,27 +146,25 @@ class ProvManager:
             self.response_cb(self.PROV_FAILED_CONNECT)
 
     def start_provisioning_edge(self, prov_data):
-        syslog("Starting provisioning Edge.")
-        if (
-            self._prov_state == self.PROV_INPROGRESS_DOWNLOADING
-            or self._prov_state == self.PROV_INPROGRESS_APPLYING
-        ):
+        syslog('Starting provisioning Edge.')
+        if self._prov_state == self.PROV_INPROGRESS_DOWNLOADING or \
+            self._prov_state == self.PROV_INPROGRESS_APPLYING:
             return
         try:
             # Construct special EdgeIQ "url"
-            url = EDGEIQ_URL + prov_data["company"]
+            url = EDGEIQ_URL + prov_data['company']
             status = self.prov.StartProvisioning(url.encode(), {})
             self.response_cb(status)
             self._prov_state = status
         except KeyError:
-            syslog("Invalid provisioning request data.")
+            syslog('Invalid provisioning request data.')
             self.response_cb(self.PROV_FAILED_INVALID)
             self._prov_state = self.PROV_FAILED_INVALID
             return
 
         if self.is_provisioning():
             # Success, send actualt response
-            self.response_cb(self.PROV_UNPROVISIONED, {"operation": "connect"})
+            self.response_cb(self.PROV_UNPROVISIONED, {'operation' : 'connect'})
             # Set timer task to check status & sent intermediate responses
             self.provision_msg_time = time.time()
             gobject.timeout_add(PROVISION_TIMER_MS, self.check_provision)
