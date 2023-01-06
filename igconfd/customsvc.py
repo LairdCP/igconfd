@@ -91,9 +91,6 @@ class CustomService(ConfigurationService):
         syslog("Greengrass provisioned state = %s" % str(self.greengrass_prov_state))
         syslog("EdgeIQ provisioned state = %s" % str(self.edge_iq_prov_state))
 
-        if state == PROV_COMPLETE_SUCCESS:
-            self.stop()
-
     def config_button_press(self, press_type):
         # If button is pressed (short) and already provisioned, enable service
         if press_type == BUTTON_PRESS_SHORT and (
